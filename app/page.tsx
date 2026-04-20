@@ -236,10 +236,10 @@ export default function Page() {
           if (files && files.length > 0) {
             setTracks((prev) =>
               prev.map((t) => {
+                const title = (t as Track).title;
+                if (!title) return t;
                 const downloaded = files.find(
-                  (f) =>
-                    f.title === (t as Track).title ||
-                    f.fileName.startsWith((t as Track).title ?? ""),
+                  (f) => f.title === title || f.fileName.startsWith(title),
                 );
                 return downloaded
                   ? {
