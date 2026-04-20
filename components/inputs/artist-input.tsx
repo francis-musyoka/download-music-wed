@@ -39,8 +39,8 @@ export function ArtistInput({ artist, limit, name, onArtist, onLimit, onName }: 
             const n = parseInt(v, 10);
             if (Number.isFinite(n) && n >= 1 && n <= 20) onLimit(n);
           }}
-          onBlur={() => {
-            const n = parseInt(raw, 10);
+          onBlur={(e) => {
+            const n = parseInt(e.target.value, 10);
             const clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1;
             setRaw(String(clamped));
             onLimit(clamped);
