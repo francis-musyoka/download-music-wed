@@ -29,8 +29,11 @@ function fmtTime(sec: number): string {
 export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
+  // trackKey is read inside the <audio> event handler; a ref beats state here
+  // because play() fires asynchronously and state updates queued alongside
+  // audioRef.current.play() haven't committed yet when the event dispatches.
+  const trackKeyRef = useRef<string | null>(null);
   const [label, setLabel] = useState<string | null>(null);
-  const [trackKey, setTrackKey] = useState<string | null>(null);
   const [playing, setPlaying] = useState(false);
   const [current, setCurrent] = useState(0);
   const [duration, setDuration] = useState(0);
@@ -38,17 +41,17 @@ export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
   useImperativeHandle(ref, () => ({
     play(src, l, k) {
       if (!audioRef.current) return;
+      trackKeyRef.current = k;
       audioRef.current.src = src;
       void audioRef.current.play().catch(() => {});
       setLabel(l);
-      setTrackKey(k);
     },
     stop() {
       if (!audioRef.current) return;
       audioRef.current.pause();
       audioRef.current.currentTime = 0;
+      trackKeyRef.current = null;
       setLabel(null);
-      setTrackKey(null);
       setPlaying(false);
       onPause?.();
     },
@@ -59,7 +62,8 @@ export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
     if (!el) return;
     const onPlayEv = () => {
       setPlaying(true);
-      if (trackKey) onPlay?.(trackKey);
+      const k = trackKeyRef.current;
+      if (k) onPlay?.(k);
     };
     const onPauseEv = () => {
       setPlaying(false);
@@ -67,8 +71,8 @@ export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
     };
     const onEnded = () => {
       setPlaying(false);
+      trackKeyRef.current = null;
       setLabel(null);
-      setTrackKey(null);
       onPause?.();
     };
     const onTime = () => setCurrent(el.currentTime);
@@ -85,7 +89,7 @@ export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
       el.removeEventListener("timeupdate", onTime);
       el.removeEventListener("loadedmetadata", onMeta);
     };
-  }, [trackKey, onPlay, onPause]);
+  }, [onPlay, onPause]);
 
   const togglePlay = () => {
     const el = audioRef.current;
@@ -110,8 +114,8 @@ export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
       el.pause();
       el.currentTime = 0;
     }
+    trackKeyRef.current = null;
     setLabel(null);
-    setTrackKey(null);
     setPlaying(false);
     onPause?.();
   };

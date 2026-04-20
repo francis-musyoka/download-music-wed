@@ -9,6 +9,11 @@ music/
 playlists/
 *.log
 
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+
 # Env
 .env
 .env.local
