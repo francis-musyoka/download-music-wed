@@ -1,66 +1,159 @@
 "use client";
 
-import { useImperativeHandle, useRef, useState, type Ref } from "react";
+import {
+  useEffect,
+  useImperativeHandle,
+  useRef,
+  useState,
+  type Ref,
+} from "react";
 
 export interface AudioHandle {
-  play: (src: string, label?: string) => void;
+  play: (src: string, label: string, key: string) => void;
   stop: () => void;
 }
 
 interface AudioPlayerProps {
   ref?: Ref<AudioHandle>;
+  onPlay?: (key: string) => void;
+  onPause?: () => void;
 }
 
-export function AudioPlayer({ ref }: AudioPlayerProps) {
+function fmtTime(sec: number): string {
+  if (!Number.isFinite(sec) || sec < 0) return "0:00";
+  const m = Math.floor(sec / 60);
+  const s = Math.floor(sec % 60);
+  return `${m}:${String(s).padStart(2, "0")}`;
+}
+
+export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
+  const progressRef = useRef<HTMLDivElement>(null);
   const [label, setLabel] = useState<string | null>(null);
+  const [trackKey, setTrackKey] = useState<string | null>(null);
+  const [playing, setPlaying] = useState(false);
+  const [current, setCurrent] = useState(0);
+  const [duration, setDuration] = useState(0);
 
   useImperativeHandle(ref, () => ({
-    play(src, l) {
+    play(src, l, k) {
       if (!audioRef.current) return;
       audioRef.current.src = src;
-      audioRef.current.play().catch(() => {});
-      setLabel(l ?? null);
+      void audioRef.current.play().catch(() => {});
+      setLabel(l);
+      setTrackKey(k);
     },
     stop() {
-      audioRef.current?.pause();
+      if (!audioRef.current) return;
+      audioRef.current.pause();
+      audioRef.current.currentTime = 0;
       setLabel(null);
+      setTrackKey(null);
+      setPlaying(false);
+      onPause?.();
     },
   }));
 
+  useEffect(() => {
+    const el = audioRef.current;
+    if (!el) return;
+    const onPlayEv = () => {
+      setPlaying(true);
+      if (trackKey) onPlay?.(trackKey);
+    };
+    const onPauseEv = () => {
+      setPlaying(false);
+      onPause?.();
+    };
+    const onEnded = () => {
+      setPlaying(false);
+      setLabel(null);
+      setTrackKey(null);
+      onPause?.();
+    };
+    const onTime = () => setCurrent(el.currentTime);
+    const onMeta = () => setDuration(el.duration || 0);
+    el.addEventListener("play", onPlayEv);
+    el.addEventListener("pause", onPauseEv);
+    el.addEventListener("ended", onEnded);
+    el.addEventListener("timeupdate", onTime);
+    el.addEventListener("loadedmetadata", onMeta);
+    return () => {
+      el.removeEventListener("play", onPlayEv);
+      el.removeEventListener("pause", onPauseEv);
+      el.removeEventListener("ended", onEnded);
+      el.removeEventListener("timeupdate", onTime);
+      el.removeEventListener("loadedmetadata", onMeta);
+    };
+  }, [trackKey, onPlay, onPause]);
+
+  const togglePlay = () => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (el.paused) void el.play().catch(() => {});
+    else el.pause();
+  };
+
+  const seekFromClick = (ev: React.MouseEvent<HTMLDivElement>) => {
+    const el = audioRef.current;
+    const bar = progressRef.current;
+    if (!el || !bar || !duration) return;
+    const rect = bar.getBoundingClientRect();
+    const ratio = Math.min(1, Math.max(0, (ev.clientX - rect.left) / rect.width));
+    el.currentTime = ratio * duration;
+    setCurrent(el.currentTime);
+  };
+
+  const close = () => {
+    const el = audioRef.current;
+    if (el) {
+      el.pause();
+      el.currentTime = 0;
+    }
+    setLabel(null);
+    setTrackKey(null);
+    setPlaying(false);
+    onPause?.();
+  };
+
+  const pct = duration > 0 ? (current / duration) * 100 : 0;
+
   return (
-    <div
-      style={{
-        position: "fixed",
-        bottom: label ? 16 : -100,
-        left: 16,
-        right: 16,
-        maxWidth: 480,
-        margin: "0 auto",
-        background: "var(--bg-2)",
-        border: "1px solid var(--line-bright)",
-        padding: 12,
-        zIndex: 35,
-        transition: "bottom 0.25s ease",
-        display: "flex",
-        alignItems: "center",
-        gap: 12,
-        boxShadow: "6px 6px 0 var(--accent)",
-      }}
-    >
-      <audio ref={audioRef} controls style={{ flex: 1 }} />
+    <div className={`player${label ? " player--open" : ""}`} role="region" aria-label="Audio player">
+      <audio ref={audioRef} />
       {label && (
-        <span
-          style={{
-            fontFamily: "var(--ff-mono)",
-            fontSize: 11,
-            letterSpacing: "0.1em",
-            color: "var(--fg-dim)",
-            textTransform: "uppercase",
-          }}
-        >
-          {label}
-        </span>
+        <>
+          <button
+            type="button"
+            className="player__btn"
+            onClick={togglePlay}
+            aria-label={playing ? "Pause" : "Play"}
+          >
+            {playing ? "⏸" : "▶"}
+          </button>
+          <div className="player__label" title={label}>{label}</div>
+          <div
+            ref={progressRef}
+            className="player__bar"
+            onClick={seekFromClick}
+            role="slider"
+            aria-label="Seek"
+            aria-valuemin={0}
+            aria-valuemax={duration || 0}
+            aria-valuenow={current}
+          >
+            <div className="player__fill" style={{ width: `${pct}%` }} />
+          </div>
+          <div className="player__time">{fmtTime(current)} / {fmtTime(duration)}</div>
+          <button
+            type="button"
+            className="player__close"
+            onClick={close}
+            aria-label="Close player"
+          >
+            ×
+          </button>
+        </>
       )}
     </div>
   );

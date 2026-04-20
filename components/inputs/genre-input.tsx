@@ -1,22 +1,12 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import { Dropdown } from "@/components/dropdown";
 
 const GENRES = [
-  "afrobeats",
-  "amapiano",
-  "hip-hop",
-  "pop",
-  "reggae",
-  "gospel",
-  "dancehall",
-  "r&b",
-  "classical",
-  "latin",
-  "reggaeton",
-  "k-pop",
-  "jazz",
-  "electronic",
+  "afrobeats", "amapiano", "hip-hop", "pop", "reggae", "gospel",
+  "dancehall", "r&b", "classical", "latin", "reggaeton", "k-pop",
+  "jazz", "electronic",
 ];
 
 interface Props {
@@ -29,6 +19,9 @@ interface Props {
 }
 
 export function GenreInput({ genre, limit, name, onGenre, onLimit, onName }: Props) {
+  const [raw, setRaw] = useState(String(limit));
+  useEffect(() => { setRaw(String(limit)); }, [limit]);
+
   return (
     <div className="console__form" data-form="genre">
       <div className="field">
@@ -45,10 +38,21 @@ export function GenreInput({ genre, limit, name, onGenre, onLimit, onName }: Pro
         <label>Limit</label>
         <input
           type="number"
-          value={limit}
+          value={raw}
           min={1}
-          max={50}
-          onChange={(e) => onLimit(parseInt(e.target.value, 10) || 1)}
+          max={20}
+          onChange={(e) => {
+            const v = e.target.value;
+            setRaw(v);
+            const n = parseInt(v, 10);
+            if (Number.isFinite(n) && n >= 1 && n <= 20) onLimit(n);
+          }}
+          onBlur={() => {
+            const n = parseInt(raw, 10);
+            const clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1;
+            setRaw(String(clamped));
+            onLimit(clamped);
+          }}
         />
       </div>
       <div className="field">

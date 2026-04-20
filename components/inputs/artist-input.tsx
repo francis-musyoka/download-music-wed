@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useState } from "react";
+
 interface Props {
   artist: string;
   limit: number;
@@ -10,6 +12,9 @@ interface Props {
 }
 
 export function ArtistInput({ artist, limit, name, onArtist, onLimit, onName }: Props) {
+  const [raw, setRaw] = useState(String(limit));
+  useEffect(() => { setRaw(String(limit)); }, [limit]);
+
   return (
     <div className="console__form" data-form="artist">
       <div className="field field--wide">
@@ -25,10 +30,21 @@ export function ArtistInput({ artist, limit, name, onArtist, onLimit, onName }: 
         <label>Limit</label>
         <input
           type="number"
-          value={limit}
+          value={raw}
           min={1}
           max={20}
-          onChange={(e) => onLimit(parseInt(e.target.value, 10) || 1)}
+          onChange={(e) => {
+            const v = e.target.value;
+            setRaw(v);
+            const n = parseInt(v, 10);
+            if (Number.isFinite(n) && n >= 1 && n <= 20) onLimit(n);
+          }}
+          onBlur={() => {
+            const n = parseInt(raw, 10);
+            const clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1;
+            setRaw(String(clamped));
+            onLimit(clamped);
+          }}
         />
       </div>
       <div className="field">

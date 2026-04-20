@@ -8,6 +8,7 @@ type Row = Track | DownloadedTrack;
 interface Props {
   tracks: Row[];
   inputLabel: string;
+  playingKey?: string | null;
   onPlay: (t: Row) => void;
   onDownloadOne: (t: Row) => void;
   onDownloadAll: () => void;
@@ -26,6 +27,7 @@ function rowKey(t: Row, i: number): string {
 export function ResultsList({
   tracks,
   inputLabel,
+  playingKey,
   onPlay,
   onDownloadOne,
   onDownloadAll,
@@ -83,15 +85,19 @@ export function ResultsList({
           </div>
         </div>
         <div className="chart__list">
-          {tracks.map((t, i) => (
-            <TrackCard
-              key={rowKey(t, i)}
-              rank={i + 1}
-              track={t}
-              onPlay={onPlay}
-              onDownload={onDownloadOne}
-            />
-          ))}
+          {tracks.map((t, i) => {
+            const k = rowKey(t, i);
+            return (
+              <TrackCard
+                key={k}
+                rank={i + 1}
+                track={t}
+                isPlaying={playingKey === k}
+                onPlay={onPlay}
+                onDownload={onDownloadOne}
+              />
+            );
+          })}
         </div>
       </div>
     </section>

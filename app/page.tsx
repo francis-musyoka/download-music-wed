@@ -44,6 +44,14 @@ function trackLabel(t: Track | DownloadedTrack): string {
   return `${t.artist} — ${t.title}`;
 }
 
+function rowKey(t: Row, i: number): string {
+  const v = (t as Track).videoId;
+  if (v) return v;
+  const f = (t as DownloadedTrack).fileName;
+  if (f) return f;
+  return String(i);
+}
+
 interface PreviewCacheEntry {
   streamUrl: string;
   expiresAtMs: number;
@@ -101,6 +109,7 @@ export default function Page() {
   const [tracks, setTracks] = useState<Row[]>([]);
   const [inputLabel, setInputLabel] = useState("");
   const [dock, setDock] = useState<DockItem[]>([]);
+  const [playingKey, setPlayingKey] = useState<string | null>(null);
 
   const audioRef = useRef<AudioHandle>(null);
 
@@ -378,36 +387,42 @@ export default function Page() {
 
   const playTrack = useCallback(
     async (t: Row): Promise<void> => {
+      const idx = tracks.findIndex((x) => x === t);
+      const key = rowKey(t, idx < 0 ? 0 : idx);
+
+      // Clicking the already-playing row stops playback.
+      if (playingKey === key) {
+        audioRef.current?.stop();
+        return;
+      }
+
       const cachedName = (t as DownloadedTrack).fileName;
       if (cachedName) {
         audioRef.current?.play(
           `/api/audio/${encodeURIComponent(cachedName)}`,
           trackLabel(t),
+          key,
         );
         return;
       }
-      // Try instant preview via /api/preview before falling back to a full
-      // server-side download. Preview resolves a signed googlevideo URL so
-      // the <audio> element streams directly from Google's CDN.
       const videoId = (t as Track).videoId;
       if (videoId) {
         const streamUrl = await resolvePreviewUrl(videoId);
         if (streamUrl) {
-          audioRef.current?.play(streamUrl, trackLabel(t));
+          audioRef.current?.play(streamUrl, trackLabel(t), key);
           return;
         }
-        // fall through to download fallback
       }
-      // Fallback: download then auto-play the first returned file.
       const files = await startDownload({ tracks: [t as Track] });
       if (files && files[0]) {
         audioRef.current?.play(
           `/api/audio/${encodeURIComponent(files[0].fileName)}`,
           trackLabel(t),
+          key,
         );
       }
     },
-    [startDownload],
+    [startDownload, tracks, playingKey],
   );
 
   const downloadOne = useCallback(
@@ -602,13 +617,18 @@ export default function Page() {
       <ResultsList
         tracks={tracks}
         inputLabel={inputLabel}
+        playingKey={playingKey}
         onPlay={playTrack}
         onDownloadOne={downloadOne}
         onDownloadAll={downloadAllZip}
         onDownloadM3U={downloadM3U}
       />
       <Footer />
-      <AudioPlayer ref={audioRef} />
+      <AudioPlayer
+        ref={audioRef}
+        onPlay={(k) => setPlayingKey(k)}
+        onPause={() => setPlayingKey(null)}
+      />
       <DownloadDock items={dock} onClose={closeDock} />
       <HowItWorksModal open={howOpen} onOpenChange={setHowOpen} />
     </>

@@ -137,8 +137,17 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
                 className="btn btn-accent"
                 onClick={handleGo}
                 disabled={busy}
+                aria-busy={busy || undefined}
               >
-                {BUTTON_LABELS[mode]} <span>→</span>
+                {busy ? (
+                  <>
+                    Searching… <span className="spinner" aria-hidden="true" />
+                  </>
+                ) : (
+                  <>
+                    {BUTTON_LABELS[mode]} <span>→</span>
+                  </>
+                )}
               </button>
             </div>
           </div>

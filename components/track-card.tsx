@@ -8,6 +8,7 @@ type Row = Track | DownloadedTrack;
 interface Props {
   rank: number;
   track: Row;
+  isPlaying?: boolean;
   onPlay: (t: Row) => void;
   onDownload: (t: Row) => void;
 }
@@ -28,6 +29,7 @@ function fmtViews(n?: number) {
 export const TrackCard = memo(function TrackCard({
   rank,
   track,
+  isPlaying,
   onPlay,
   onDownload,
 }: Props) {
@@ -51,11 +53,11 @@ export const TrackCard = memo(function TrackCard({
       <div className="chart__actions">
         <button
           type="button"
-          className="icon-btn primary"
+          className={`icon-btn primary${isPlaying ? " playing" : ""}`}
           onClick={() => onPlay(track)}
-          aria-label={`Play ${t.title}`}
+          aria-label={isPlaying ? `Pause ${t.title}` : `Play ${t.title}`}
         >
-          ▶
+          {isPlaying ? "⏸" : "▶"}
         </button>
         <button
           type="button"
