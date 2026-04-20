@@ -20,5 +20,7 @@ playlists/
 .idea/
 
 #claude
-docs/superpowers
+docs/superpowers/*
 COMMIT_MAP.md
+deploy/*
+design/*

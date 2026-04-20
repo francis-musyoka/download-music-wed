@@ -62,19 +62,24 @@ download-music-web/
 │       └── health/route.ts            ← deps + disk health
 ├── components/
 │   ├── ui/                            ← shadcn primitives (Button, Dialog, Tabs, Toast, Progress…)
+│   ├── nav.tsx
 │   ├── hero.tsx
+│   ├── marquee.tsx
 │   ├── value-props.tsx
-│   ├── how-it-works-modal.tsx
-│   ├── mode-selector.tsx              ← 4-tab mode switcher
+│   ├── how-to-download.tsx            ← 4-step illustrated guide (new)
+│   ├── how-it-works-modal.tsx         ← 6-step algorithm modal
+│   ├── app-panel.tsx                  ← console container with tabs + forms + status
+│   ├── steps-inline.tsx               ← colored 3-step pills inside app panel
 │   ├── inputs/
 │   │   ├── genre-input.tsx
 │   │   ├── artist-input.tsx
 │   │   ├── song-input.tsx
 │   │   └── url-input.tsx
+│   ├── dropdown.tsx                   ← custom non-native dropdown (shadcn Select wraps Radix)
 │   ├── results-list.tsx
 │   ├── track-card.tsx
 │   ├── audio-player.tsx               ← global player for preview streaming
-│   ├── download-panel.tsx             ← sticky bottom-right
+│   ├── download-dock.tsx              ← draggable bottom-right dock
 │   └── footer.tsx
 ├── lib/
 │   ├── pipeline/
@@ -149,33 +154,51 @@ Progress events during a download job:
 
 ### Frontend — single page composition
 
-Top to bottom:
+Top to bottom (user-tested with three reviewers; copy simplified to plain action verbs — "search / preview / download" — after they found the original "queue your chart" editorial framing confusing):
 
-1. **Hero** (`components/hero.tsx`)
-   - Full-width. Background image (`public/hero-bg.jpg`) with dark overlay.
-   - Title: "Music Downloader". Tagline: "Get the real hits. Any genre. Any artist. One click."
-   - Buttons: **Get Started** (scrolls to app panel) + **How it works** (opens modal).
-2. **Why use this?** (`components/value-props.tsx`) — 4 cards:
-   - 🎯 Real hits, not filler
-   - 🎧 320kbps MP3 with embedded art + metadata
-   - 🆓 Free, no signup, no ads
-   - 📀 USB-ready M3U playlists
-3. **Main app panel**
-   - `mode-selector.tsx`: tabs 🎵 Genre | 🎤 Artist | 🔍 Song | 🔗 URL
-   - Mode-specific inputs from `components/inputs/*`
-   - Primary button: "Rank & Preview" (Genre/Artist/Song) or "Download" (URL)
-4. **Status area** — visible during backend work. Progress strip showing current stage.
-5. **Results list** (`components/results-list.tsx`)
-   - Bulk actions: **Download All as ZIP** + **Download All as M3U**
-   - Grid of `track-card.tsx`: thumbnail, title, artist, duration, views, score, ▶ Play, ⬇ Download
-   - Clicking ▶ Play sends the track to a global `audio-player.tsx`
-6. **Download panel** (`components/download-panel.tsx`)
-   - Sticky bottom-right toast-style panel
-   - Active downloads with per-track progress bars
-   - Completed items with green check
-   - Failed items with retry button
-   - Minimise/expand control
-7. **Footer** — GitHub link, version, credits.
+1. **Nav** — brand wordmark "Musicography." with tangerine full-stop + links: Why, Start, How it works. No GitHub link per user decision.
+2. **Hero** (`components/hero.tsx`)
+   - Full-viewport section. Layered radial gradients + subtle CSS grid lines + grain overlay (no photo background — atmospheric only).
+   - Title: editorial display type "The **Real Hits.** Downloaded." (italic accent on "Real Hits.")
+   - Sub: "Search by genre, artist, song name, or paste a link. Preview every track in your browser first, then download the ones you love as 320kbps MP3s. No signup. No ads."
+   - Buttons: **Start searching →** (primary tangerine) + **How it works** (ghost, opens modal)
+   - Right rail: "Edition 001" marker in editorial mono type
+   - Scrolling marquee at section bottom showing current hit tickers
+3. **Why use this?** (`components/value-props.tsx`) — 3 asymmetric cards:
+   - 01 / DETECTION — Real hits, not filler
+   - 02 / FIDELITY — 320kbps with proper metadata
+   - 03 / LICENCE — No signup. No ads. No tracking.
+4. **How to download** (`components/how-to-download.tsx`) — NEW section. 4 illustrated step cards with oversized alternating tangerine/lime number badges floating above each card. Each card contains a mini-illustration of what that step shows:
+   - Step 1: mini mode-tabs (Genre highlighted) — "Choose how to search"
+   - Step 2: mini ranked chart rows with score badges — "Get ranked results"
+   - Step 3: ▶ button + animated waveform — "Preview in your browser"
+   - Step 4: 3 download-option chips (Single / ZIP / M3U) — "Download what you love"
+   - Bottom CTA: "Try it now ↓" links to app panel
+5. **Main app panel** (`components/app-panel.tsx` + subcomponents)
+   - Heading: "Find your **music.**" + inline 3-step pill stack ("Search / Preview / Download") with colored number chips
+   - Console-style container with 4 tabs (`./GENRE` `./ARTIST` `./SONG` `./URL`) using monospace labels
+   - Mode-specific form panels (only the active one visible, toggled via `hidden` attr):
+     - Genre: custom dropdown + limit + playlist name
+     - Artist: artist input (full width) + limit + playlist name
+     - Song: single song-title input (centered, full width)
+     - URL: URL input (full width) + playlist name
+   - Primary button label changes per mode:
+     - Genre/Artist → **Search top tracks →**
+     - Song → **Search this song →**
+     - URL → **Download now →**
+   - Status log below the form (hidden until triggered) — terminal-style `>` lines with ✓/▸/○ markers per stage
+6. **Results list** (`components/results-list.tsx`) — rendered after ranking completes
+   - Eyebrow: `Search results · <input> · <N> tracks`
+   - Heading: "Preview and **download.**"
+   - Helper copy explicitly explains the ▶ and ↓ icons and the bulk options
+   - Bulk buttons: **↓ Download all (ZIP)** + **↓ Download playlist (M3U)**
+   - Rows with Billboard-chart-style oversized rank number (01, 02…) + move indicator (▲▼ NEW), thumbnail, title, artist, duration, plays, score pill (acid lime), ▶/↓ icon buttons
+7. **Download dock** (`components/download-dock.tsx`)
+   - Floating panel (default bottom-right) with brutalist offset shadow
+   - **Draggable by the header** — pointer events with viewport clamping; does not trigger drag on close button
+   - Shows: `Transfer live · N/M` live indicator, three-line grip hint, active/done/failed items with spinning-vinyl / green-tick / retry states
+   - Minimise control
+8. **Footer** — "Side A / Side B / Catalog" record-sleeve styled columns; bottom line with copyright + version.
 
 ### "How it works" modal
 
@@ -190,14 +213,40 @@ shadcn Dialog. 6 steps with icons:
 
 Close via button or outside-click.
 
-### Aesthetic
+### Aesthetic — "Editorial Billboard Chart meets Analog Warmth"
 
-- Background: `bg-zinc-950` / near-black
-- Accent: neon green (`emerald-400`/`emerald-500`)
-- Typography: Inter (or Geist), bold headings, comfortable body size
-- Thumbnail-heavy cards
-- Hover: subtle scale + glow
-- Mobile-responsive but desktop-first
+Direction committed after building and reviewing a working HTML prototype at `design/prototype.html`. The aesthetic positions the product as an authoritative music critic's chart — not a generic streaming clone — with pops of energetic color to keep it feeling alive. See the prototype for the source of truth; the tokens below are the extraction.
+
+**Palette**
+- `--bg`: `#0c0a09` — warm near-black (vinyl sleeve under low light)
+- `--bg-2`: `#171310` — elevated surface
+- `--fg`: `#fafaf9` — warm off-white (aged paper, not sterile white)
+- `--fg-dim`: `#a8a29e` — secondary text
+- `--fg-muted`: `#57534e` — tertiary/placeholder
+- `--accent`: `#FF5A1F` — electric tangerine (primary CTAs, emphasis)
+- `--accent-2`: `#C1FF00` — acid lime (secondary pops, scores, "live" indicators)
+- `--line`: `#2a2522` — subtle divider
+- `--line-bright`: `#44403c` — stronger border
+
+**Typography (all Google Fonts, free)**
+- Display: **Fraunces** (variable axes: `opsz 9–144`, `SOFT 0–100`, `WONK 0–1`) — characterful editorial serif used at large sizes with italics in the accent color
+- Body: **Plus Jakarta Sans** (400/500/600/700/800) — modern geometric sans for paragraphs and UI
+- Mono: **JetBrains Mono** (300/400/500/700) — rank numbers, durations, status logs, eyebrow labels
+
+**Interaction patterns**
+- Buttons use a **brutalist offset shadow** (`5px 5px 0 var(--accent)`) that translates on hover — no soft drop shadows
+- Hover states lift cards `translateY(-8px)` and swap border to accent
+- All native `<select>` elements are replaced with a **custom `<div>`-based dropdown** (`.dropdown` + `.dropdown__panel` + `.dropdown__option` buttons) for full styling control of the popover
+- The download dock is **draggable** — pointer events, clamped to viewport, works on touch
+- Micro-animations: pulsing live dot, scrolling marquee, animated waveform bars in step-3 icon, spinning vinyl in dock items
+
+**Visual accents baked in**
+- Grain overlay (SVG fractal noise) for printed-paper atmosphere
+- Subtle radial-gradient wash in hero and "how" sections
+- Faint CSS grid lines behind hero
+- Dashed border on step-icon mock boxes (editorial/schematic feel)
+- Number chips with `4px 4px 0 var(--fg)` offset shadows on the "how to download" section
+- Alternating tangerine/lime on step numbers for rhythmic color pulses
 
 ## Error handling
 
@@ -257,19 +306,42 @@ Manual smoke test after each stage. No automated tests in v1. Happy-path checks:
 - SSE progress emits during ranking and downloading
 - Refreshing mid-download does not corrupt server state
 
+## Design prototype
+
+A fully working HTML prototype of the complete visual design lives at:
+
+```
+design/prototype.html
+```
+
+It is the **visual source of truth** for the implementation — includes palette, typography, all 8 page sections, working tabs + custom dropdown + draggable dock + modal, and every micro-interaction. Open it locally:
+
+```bash
+cd download-music-web/design
+python3 -m http.server 8765
+# open http://localhost:8765/prototype.html
+```
+
+Implementation components should port this design faithfully to React + Tailwind, not reinterpret it.
+
 ## Implementation sequencing (preview for the plan)
 
-1. Scaffold Next.js + TS + Tailwind + shadcn in `download-music-web/`
-2. Copy pipeline code (`scrapers/`, `scoring/`, `playlist/`, `config/`, `utils/format.js`), adapt `utils/deps.js`
-3. Write `lib/pipeline/orchestrator.ts`, `lib/jobs.ts`, `lib/types.ts`
-4. API routes (`/api/health`, `/api/rank`, `/api/download`, `/api/progress`, `/api/audio`, `/api/zip`)
-5. Root layout + globals (dark theme, fonts, tokens)
-6. `hero`, `value-props`, `how-it-works-modal`
-7. `mode-selector` + 4 input components
-8. `results-list`, `track-card`, `audio-player`
-9. `download-panel` with SSE wiring
-10. Polish pass: hover states, transitions, mobile breakpoints
-11. Deployment config: `Caddyfile`, `ecosystem.config.js`, `.env.example`, README deploy steps
-12. Local smoke test → deploy to Contabo → remote smoke test
+1. Scaffold Next.js 15 + TS + Tailwind + shadcn/ui in `download-music-web/`
+2. Port palette + typography from prototype → `tailwind.config.ts` + `globals.css` (CSS variables, Google Fonts for Fraunces + Plus Jakarta Sans + JetBrains Mono)
+3. Copy pipeline code (`scrapers/`, `scoring/`, `playlist/`, `config/`, `utils/format.js`), adapt `utils/deps.js`
+4. Write `lib/pipeline/orchestrator.ts`, `lib/jobs.ts`, `lib/types.ts`
+5. API routes: `/api/health`, `/api/rank`, `/api/download`, `/api/progress/[jobId]`, `/api/audio/[file]`, `/api/zip/[jobId]`
+6. Root layout + globals — dark theme, grain overlay, variable-font setup
+7. `Nav`, `Hero`, `Marquee`, `ValueProps`
+8. `HowToDownload` (4 step cards with mini-illustrations)
+9. `HowItWorksModal` (6-step algorithm dialog)
+10. `AppPanel` shell + `StepsInline` + 4 `Input*` subcomponents + custom `Dropdown` (or shadcn Select)
+11. Status log component wired to SSE progress events
+12. `ResultsList` + `TrackCard` + `AudioPlayer` (global, streams via `/api/audio/:file`)
+13. `DownloadDock` — draggable with pointer events, viewport clamping, SSE-driven item state
+14. Footer
+15. Responsive polish pass (tablet + mobile breakpoints from prototype)
+16. Deployment config: `Caddyfile`, `ecosystem.config.js`, `.env.example`, `README` deploy steps
+17. Local smoke test (all 4 modes, preview streaming, individual + ZIP + M3U download, dock drag) → deploy to Contabo → remote smoke test
 
 Detailed plan to be written via `superpowers:writing-plans`.
