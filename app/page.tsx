@@ -12,6 +12,7 @@ import { Footer } from "@/components/footer";
 import { AudioPlayer, type AudioHandle } from "@/components/audio-player";
 import { DownloadDock, type DockItem } from "@/components/download-dock";
 import { subscribeJob } from "@/lib/client/sse";
+import { toast } from "@/hooks/use-toast";
 import type {
   DownloadedTrack,
   Mode,
@@ -135,10 +136,11 @@ export default function Page() {
         jobId = data.jobId;
       } catch (err) {
         setBusy(false);
-        // Surface the error in the alert since there's no dedicated error UI.
-        alert(
-          `Could not start download: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        toast({
+          title: "Download failed to start",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "destructive",
+        });
         return;
       }
 
@@ -253,7 +255,11 @@ export default function Page() {
             );
             jobResolver(files);
           } else if (done.stage === "failed") {
-            alert(`Download job failed: ${done.error ?? "unknown error"}`);
+            toast({
+              title: "Download job failed",
+              description: done.error ?? "unknown error",
+              variant: "destructive",
+            });
             jobResolver(undefined);
           } else {
             jobResolver(undefined);
@@ -337,9 +343,11 @@ export default function Page() {
         jobId = data.jobId;
       } catch (err) {
         setBusy(false);
-        alert(
-          `Could not start search: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        toast({
+          title: "Search failed to start",
+          description: err instanceof Error ? err.message : String(err),
+          variant: "destructive",
+        });
         return;
       }
 
@@ -352,7 +360,11 @@ export default function Page() {
           if (done.stage === "complete" && Array.isArray(done.result)) {
             setTracks(done.result as Track[]);
           } else if (done.stage === "failed") {
-            alert(`Search failed: ${done.error ?? "unknown error"}`);
+            toast({
+              title: "Search failed",
+              description: done.error ?? "unknown error",
+              variant: "destructive",
+            });
           }
           // Mark all status lines as done so the UI settles.
           setStatus((prev) =>
@@ -444,9 +456,11 @@ export default function Page() {
       jobId = data.jobId;
     } catch (err) {
       setBusy(false);
-      alert(
-        `Could not start ZIP: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast({
+        title: "ZIP failed to start",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
       return;
     }
 
@@ -486,7 +500,11 @@ export default function Page() {
           // works for file-download response headers from the API.
           window.location.href = `/api/zip/${jobId}`;
         } else {
-          alert(`ZIP failed: ${done.error ?? "unknown error"}`);
+          toast({
+            title: "ZIP failed",
+            description: done.error ?? "unknown error",
+            variant: "destructive",
+          });
         }
       },
     });
@@ -518,9 +536,11 @@ export default function Page() {
       jobId = data.jobId;
     } catch (err) {
       setBusy(false);
-      alert(
-        `Could not start M3U job: ${err instanceof Error ? err.message : String(err)}`,
-      );
+      toast({
+        title: "M3U failed to start",
+        description: err instanceof Error ? err.message : String(err),
+        variant: "destructive",
+      });
       return;
     }
 
@@ -556,11 +576,17 @@ export default function Page() {
       onDone: (done) => {
         setBusy(false);
         if (done.stage === "complete") {
-          alert(
-            "M3U playlist and tracks were written to the server's playlists/ folder.",
-          );
+          toast({
+            title: "Playlist written",
+            description:
+              "M3U and tracks saved to playlists/ on the server.",
+          });
         } else {
-          alert(`M3U job failed: ${done.error ?? "unknown error"}`);
+          toast({
+            title: "M3U failed",
+            description: done.error ?? "unknown error",
+            variant: "destructive",
+          });
         }
       },
     });
