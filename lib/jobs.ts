@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type { Job, JobStage, ProgressEvent } from "./types";
+import { releaseSlot } from "./limits";
 
 // In-memory job store. Bounded by a 2h TTL sweep (see below).
 // NOTE: single-process only — this intentionally does not survive restarts.
@@ -17,13 +18,18 @@ const JOBS: Map<string, Job> =
 const TWO_HOURS_MS = 2 * 60 * 60 * 1000;
 const TEN_MINUTES_MS = 10 * 60 * 1000;
 
+// Caller must have successfully reserved an inflight slot via reserveSlot()
+// before calling createJob. We track the slot on the job so either the
+// complete/fail path or the sweep path releases it exactly once.
 export function createJob(init: {
   kind: Job["kind"];
+  sessionId: string;
   mode?: Job["mode"];
   input?: string;
 }): Job {
   const job: Job = {
     id: randomUUID(),
+    sessionId: init.sessionId,
     kind: init.kind,
     mode: init.mode,
     input: init.input,
@@ -31,6 +37,7 @@ export function createJob(init: {
     stage: "queued",
     progress: [],
     subscribers: new Set(),
+    holdsSlot: true,
   };
   JOBS.set(job.id, job);
   return job;
@@ -98,8 +105,11 @@ export function completeJob(
   job.result = result;
   job.stage = finalStage;
   emit(jobId, { stage: finalStage, message: "Job complete" });
-  // Release subscribers so they can be GC'd.
   job.subscribers.clear();
+  if (job.holdsSlot) {
+    releaseSlot();
+    job.holdsSlot = false;
+  }
 }
 
 export function failJob(jobId: string, error: string): void {
@@ -109,6 +119,10 @@ export function failJob(jobId: string, error: string): void {
   job.stage = "failed";
   emit(jobId, { stage: "failed", message: error, status: "failed" });
   job.subscribers.clear();
+  if (job.holdsSlot) {
+    releaseSlot();
+    job.holdsSlot = false;
+  }
 }
 
 /**
@@ -119,7 +133,18 @@ function sweep(): void {
   const cutoff = Date.now() - TWO_HOURS_MS;
   for (const [id, job] of JOBS) {
     if (job.createdAt < cutoff) {
+      for (const fn of job.subscribers) {
+        try {
+          fn({ jobId: id, stage: "failed", message: "Job expired", status: "failed" });
+        } catch {
+          // Swallow — one bad subscriber shouldn't block sweep.
+        }
+      }
       job.subscribers.clear();
+      if (job.holdsSlot) {
+        releaseSlot();
+        job.holdsSlot = false;
+      }
       JOBS.delete(id);
     }
   }

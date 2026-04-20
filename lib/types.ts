@@ -45,6 +45,8 @@ export interface ProgressEvent {
 
 export interface Job {
   id: string;
+  sessionId: string;
+  holdsSlot: boolean;
   kind: "rank" | "download";
   mode?: Mode;
   input?: string;

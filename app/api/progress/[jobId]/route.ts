@@ -1,17 +1,23 @@
 import { getJob, subscribe } from "@/lib/jobs";
+import { readSession } from "@/lib/session";
 import type { ProgressEvent } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ jobId: string }> },
 ) {
   const { jobId } = await params;
 
   const job = getJob(jobId);
   if (!job) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const session = readSession(req);
+  if (!session || session !== job.sessionId) {
     return new Response("Not found", { status: 404 });
   }
 

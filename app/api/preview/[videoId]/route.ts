@@ -10,6 +10,7 @@ export const dynamic = "force-dynamic";
 const TTL_MS = 4 * 60 * 60 * 1000;
 const SAFETY_MARGIN_MS = 30 * 60 * 1000;
 const YT_DLP_TIMEOUT_MS = 15_000;
+const MAX_PREVIEW_CACHE = 500;
 
 // YouTube videoIds are always exactly 11 chars from [A-Za-z0-9_-].
 const VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
@@ -139,6 +140,12 @@ export async function GET(
 
   const expiresAtMs = Date.now() + TTL_MS;
   PREVIEW_CACHE.set(videoId, { streamUrl: result.streamUrl, expiresAtMs });
+
+  while (PREVIEW_CACHE.size > MAX_PREVIEW_CACHE) {
+    const oldest = PREVIEW_CACHE.keys().next().value;
+    if (oldest === undefined) break;
+    PREVIEW_CACHE.delete(oldest);
+  }
 
   return NextResponse.json(
     { streamUrl: result.streamUrl, expiresAtMs },

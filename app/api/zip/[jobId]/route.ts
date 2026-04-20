@@ -1,13 +1,15 @@
 import { PassThrough, Readable } from "node:stream";
 import archiver from "archiver";
 import { getJob } from "@/lib/jobs";
+import { readSession } from "@/lib/session";
+import { safeFilename } from "@/lib/sanitize";
 import type { DownloadedTrack } from "@/lib/types";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ jobId: string }> },
 ) {
   const { jobId } = await params;
@@ -20,6 +22,11 @@ export async function GET(
     !Array.isArray(job.result) ||
     job.result.length === 0
   ) {
+    return new Response("Not found", { status: 404 });
+  }
+
+  const session = readSession(req);
+  if (!session || session !== job.sessionId) {
     return new Response("Not found", { status: 404 });
   }
 
@@ -52,7 +59,7 @@ export async function GET(
   void archive.finalize();
 
   const webStream = Readable.toWeb(pass) as ReadableStream<Uint8Array>;
-  const filename = `musicography-${jobId.slice(0, 8)}.zip`;
+  const filename = safeFilename(`musicography-${jobId.slice(0, 8)}`, "musicography") + ".zip";
 
   return new Response(webStream, {
     status: 200,
