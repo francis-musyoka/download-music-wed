@@ -14,10 +14,11 @@ test-results/
 playwright-report/
 blob-report/
 
-# Env
+# Env — catch every shape: .env, .env.local, .env.production,
+# .env.development, .env.test, .env.staging, .env.*.local.
 .env
-.env.local
-.env.production
+.env.*
+!.env.example
 
 # OS / editor
 .DS_Store
@@ -30,3 +31,4 @@ COMMIT_MAP.md
 deploy/
 design/
 e2e/
+.claude
