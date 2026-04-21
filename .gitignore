@@ -1,0 +1,34 @@
+node_modules/
+.next/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Runtime-generated
+music/
+playlists/
+*.log
+
+# Playwright
+test-results/
+playwright-report/
+blob-report/
+
+# Env — catch every shape: .env, .env.local, .env.production,
+# .env.development, .env.test, .env.staging, .env.*.local.
+.env
+.env.*
+!.env.example
+
+# OS / editor
+.DS_Store
+.vscode/
+.idea/
+
+#claude
+docs/superpowers/
+COMMIT_MAP.md
+deploy/
+design/
+e2e/
+.claude
