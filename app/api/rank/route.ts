@@ -6,7 +6,7 @@ import {
   type RankOptions,
 } from "@/lib/pipeline/orchestrator";
 import { completeJob, createJob, emit, failJob } from "@/lib/jobs";
-import { checkRate, clientIp, reserveSlot } from "@/lib/limits";
+import { checkRate, clientIp, releaseSlot, reserveSlot } from "@/lib/limits";
 import { getOrSetSession } from "@/lib/session";
 import type { Mode, Track } from "@/lib/types";
 
@@ -14,6 +14,17 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_INPUT_LEN = 200;
+const MAX_LIMIT = 50;
+const MIN_LIMIT = 1;
+const MAX_CLIENT_ERROR_LEN = 200;
+
+function sanitizeClientError(raw: string): string {
+  // Strip absolute filesystem paths so the server's directory layout isn't
+  // disclosed to the client via SSE `failed` events.
+  return raw
+    .replace(/\/(?:[^\s:,"'`]+\/)+[^\s:,"'`]*/g, "[path]")
+    .slice(0, MAX_CLIENT_ERROR_LEN);
+}
 
 interface RankBody {
   mode?: Mode | string;
@@ -75,30 +86,54 @@ export async function POST(req: Request) {
     );
   }
 
-  const res = NextResponse.json({ jobId: "" });
-  const sessionId = getOrSetSession(req, res);
-  const job = createJob({ kind: "rank", mode, input, sessionId });
+  // Past this point any thrown error must either hand the slot off to the job
+  // (so `failJob` releases it) or release it directly. Otherwise the slot
+  // leaks until process restart and concurrency is permanently reduced.
+  let job: ReturnType<typeof createJob> | null = null;
+  try {
+    const res = NextResponse.json({ jobId: "" });
+    const sessionId = getOrSetSession(req, res);
+    job = createJob({ kind: "rank", mode, input, sessionId });
+    const jobId = job.id;
 
-  const opts: RankOptions = {
-    limit: typeof limit === "number" ? limit : undefined,
-    onProgress: (ev) => emit(job.id, ev),
-  };
+    const clampedLimit =
+      typeof limit === "number" && Number.isFinite(limit)
+        ? Math.min(MAX_LIMIT, Math.max(MIN_LIMIT, Math.floor(limit)))
+        : undefined;
 
-  const runner = async (): Promise<Track[]> => {
-    if (mode === "genre") return rankGenre(input, opts);
-    if (mode === "artist") return rankArtist(input, opts);
-    return rankSong(input, opts);
-  };
+    const opts: RankOptions = {
+      limit: clampedLimit,
+      onProgress: (ev) => emit(jobId, ev),
+    };
 
-  runner()
-    .then((tracks) => completeJob(job.id, tracks))
-    .catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      failJob(job.id, message);
+    const runner = async (): Promise<Track[]> => {
+      if (mode === "genre") return rankGenre(input, opts);
+      if (mode === "artist") return rankArtist(input, opts);
+      return rankSong(input, opts);
+    };
+
+    runner()
+      .then((tracks) => completeJob(jobId, tracks))
+      .catch((err: unknown) => {
+        console.error(`[/api/rank] job ${jobId} failed:`, err);
+        const raw = err instanceof Error ? err.message : String(err);
+        failJob(jobId, sanitizeClientError(raw));
+      });
+
+    return new NextResponse(JSON.stringify({ jobId }), {
+      status: 200,
+      headers: res.headers,
     });
-
-  return new NextResponse(JSON.stringify({ jobId: job.id }), {
-    status: 200,
-    headers: res.headers,
-  });
+  } catch (err) {
+    console.error("[/api/rank] setup failed:", err);
+    if (job) {
+      failJob(job.id, "Internal server error");
+    } else {
+      releaseSlot();
+    }
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
 }

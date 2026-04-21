@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { downloadByUrl, downloadTracks } from "@/lib/pipeline/orchestrator";
 import { completeJob, createJob, emit, failJob } from "@/lib/jobs";
-import { checkRate, clientIp, reserveSlot } from "@/lib/limits";
+import { checkRate, clientIp, releaseSlot, reserveSlot } from "@/lib/limits";
 import { getOrSetSession } from "@/lib/session";
 import { safeFilename } from "@/lib/sanitize";
 import type { DownloadedTrack, Track } from "@/lib/types";
@@ -16,6 +16,9 @@ const ALLOWED_URL_HOSTS = new Set([
   "music.youtube.com",
   "youtu.be",
 ]);
+
+const MAX_TRACKS = 50;
+const MAX_CLIENT_ERROR_LEN = 200;
 
 interface DownloadBody {
   tracks?: Track[];
@@ -32,6 +35,14 @@ function isAllowedUrl(raw: string): boolean {
   }
   if (u.protocol !== "https:") return false;
   return ALLOWED_URL_HOSTS.has(u.hostname.toLowerCase());
+}
+
+function sanitizeClientError(raw: string): string {
+  // Strip absolute filesystem paths so the server's directory layout isn't
+  // disclosed to the client via SSE `failed` events.
+  return raw
+    .replace(/\/(?:[^\s:,"'`]+\/)+[^\s:,"'`]*/g, "[path]")
+    .slice(0, MAX_CLIENT_ERROR_LEN);
 }
 
 export async function POST(req: Request) {
@@ -61,6 +72,13 @@ export async function POST(req: Request) {
     );
   }
 
+  if (hasTracks && (body.tracks as Track[]).length > MAX_TRACKS) {
+    return NextResponse.json(
+      { error: `Too many tracks (max ${MAX_TRACKS})` },
+      { status: 400 },
+    );
+  }
+
   if (hasUrl && !isAllowedUrl(body.url as string)) {
     return NextResponse.json(
       { error: "URL not allowed. Only youtube.com / youtu.be over https." },
@@ -75,43 +93,62 @@ export async function POST(req: Request) {
     );
   }
 
-  const res = NextResponse.json({ jobId: "" });
-  const sessionId = getOrSetSession(req, res);
-  const playlistName = body.playlistName
-    ? safeFilename(body.playlistName)
-    : undefined;
+  // Past this point any thrown error must either hand the slot off to the job
+  // (so `failJob` releases it) or release it directly. Otherwise the slot
+  // leaks until process restart and concurrency is permanently reduced.
+  let job: ReturnType<typeof createJob> | null = null;
+  try {
+    const res = NextResponse.json({ jobId: "" });
+    const sessionId = getOrSetSession(req, res);
+    const playlistName = body.playlistName
+      ? safeFilename(body.playlistName)
+      : undefined;
 
-  const job = createJob({
-    kind: "download",
-    sessionId,
-    mode: hasUrl ? "url" : undefined,
-    input: hasUrl ? body.url : undefined,
-  });
+    job = createJob({
+      kind: "download",
+      sessionId,
+      mode: hasUrl ? "url" : undefined,
+      input: hasUrl ? body.url : undefined,
+    });
+    const jobId = job.id;
 
-  const onProgress = (ev: Parameters<typeof emit>[1]): void =>
-    emit(job.id, ev);
+    const onProgress = (ev: Parameters<typeof emit>[1]): void =>
+      emit(jobId, ev);
 
-  const runner = async (): Promise<DownloadedTrack[]> => {
-    if (hasUrl) {
-      return downloadByUrl(body.url as string, playlistName, { onProgress });
+    const runner = async (): Promise<DownloadedTrack[]> => {
+      if (hasUrl) {
+        return downloadByUrl(body.url as string, playlistName, { onProgress });
+      }
+      const { files } = await downloadTracks({
+        tracks: body.tracks as Track[],
+        playlistName,
+        onProgress,
+      });
+      return files;
+    };
+
+    runner()
+      .then((files) => completeJob(jobId, files))
+      .catch((err: unknown) => {
+        console.error(`[/api/download] job ${jobId} failed:`, err);
+        const raw = err instanceof Error ? err.message : String(err);
+        failJob(jobId, sanitizeClientError(raw));
+      });
+
+    return new NextResponse(JSON.stringify({ jobId }), {
+      status: 200,
+      headers: res.headers,
+    });
+  } catch (err) {
+    console.error("[/api/download] setup failed:", err);
+    if (job) {
+      failJob(job.id, "Internal server error");
+    } else {
+      releaseSlot();
     }
-    const { files } = await downloadTracks({
-      tracks: body.tracks as Track[],
-      playlistName,
-      onProgress,
-    });
-    return files;
-  };
-
-  runner()
-    .then((files) => completeJob(job.id, files))
-    .catch((err: unknown) => {
-      const message = err instanceof Error ? err.message : String(err);
-      failJob(job.id, message);
-    });
-
-  return new NextResponse(JSON.stringify({ jobId: job.id }), {
-    status: 200,
-    headers: res.headers,
-  });
+    return NextResponse.json(
+      { error: "Internal server error" },
+      { status: 500 },
+    );
+  }
 }
