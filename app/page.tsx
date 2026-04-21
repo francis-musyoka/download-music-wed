@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Nav } from "@/components/nav";
 import { Hero } from "@/components/hero";
 import { ValueProps } from "@/components/value-props";
@@ -113,6 +113,19 @@ export default function Page() {
 
   const audioRef = useRef<AudioHandle>(null);
 
+  // One shared SSE subscription slot. Every handler that starts a new job
+  // must cancel the previous subscription before opening a new one, so rapid
+  // re-submits can't stack open EventSource connections (Chrome caps at 6
+  // per origin). Also torn down on unmount for HMR / Fast Refresh safety.
+  const sseRef = useRef<(() => void) | null>(null);
+
+  useEffect(() => {
+    return () => {
+      sseRef.current?.();
+      sseRef.current = null;
+    };
+  }, []);
+
   const openHow = useCallback(() => setHowOpen(true), []);
   const closeDock = useCallback(() => setDock([]), []);
 
@@ -177,7 +190,8 @@ export default function Page() {
         jobResolver = resolve;
       });
 
-      subscribeJob(jobId, {
+      sseRef.current?.();
+      sseRef.current = subscribeJob(jobId, {
         onProgress: (ev: ProgressEvent) => {
           if (ev.stage !== "downloading") return;
           if (typeof ev.current !== "number") return;
@@ -360,7 +374,8 @@ export default function Page() {
         return;
       }
 
-      subscribeJob(jobId, {
+      sseRef.current?.();
+      sseRef.current = subscribeJob(jobId, {
         onProgress: (ev) => {
           pushStatus(ev);
         },
@@ -482,7 +497,8 @@ export default function Page() {
     const seeded = seedDockFromTracks(jobId, payloadTracks);
     setDock((prev) => [...prev, ...seeded]);
 
-    subscribeJob(jobId, {
+    sseRef.current?.();
+    sseRef.current = subscribeJob(jobId, {
       onProgress: (ev) => {
         if (ev.stage !== "downloading") return;
         if (typeof ev.current !== "number") return;
@@ -562,7 +578,8 @@ export default function Page() {
     const seeded = seedDockFromTracks(jobId, payloadTracks);
     setDock((prev) => [...prev, ...seeded]);
 
-    subscribeJob(jobId, {
+    sseRef.current?.();
+    sseRef.current = subscribeJob(jobId, {
       onProgress: (ev) => {
         if (ev.stage !== "downloading") return;
         if (typeof ev.current !== "number") return;
