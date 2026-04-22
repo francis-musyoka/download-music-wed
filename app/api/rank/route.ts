@@ -14,13 +14,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const MAX_INPUT_LEN = 200;
-const MAX_LIMIT = 50;
+const MAX_LIMIT = 10;
 const MIN_LIMIT = 1;
 const MAX_CLIENT_ERROR_LEN = 200;
 
 function sanitizeClientError(raw: string): string {
-  // Strip absolute filesystem paths so the server's directory layout isn't
-  // disclosed to the client via SSE `failed` events.
   return raw
     .replace(/\/(?:[^\s:,"'`]+\/)+[^\s:,"'`]*/g, "[path]")
     .slice(0, MAX_CLIENT_ERROR_LEN);
@@ -28,8 +26,19 @@ function sanitizeClientError(raw: string): string {
 
 interface RankBody {
   mode?: Mode | string;
-  input?: string;
+  input?: string | { title?: unknown; artist?: unknown };
   limit?: number;
+}
+
+function validateSongInput(raw: unknown): { title: string; artist: string } | null {
+  if (!raw || typeof raw !== "object") return null;
+  const r = raw as { title?: unknown; artist?: unknown };
+  if (typeof r.title !== "string" || typeof r.artist !== "string") return null;
+  const title = r.title.trim();
+  const artist = r.artist.trim();
+  if (!title || !artist) return null;
+  if (title.length > MAX_INPUT_LEN || artist.length > MAX_INPUT_LEN) return null;
+  return { title, artist };
 }
 
 export async function POST(req: Request) {
@@ -51,16 +60,9 @@ export async function POST(req: Request) {
 
   const { mode, input, limit } = body;
 
-  if (!mode || !input || typeof input !== "string") {
+  if (!mode) {
     return NextResponse.json(
       { error: "mode and input required" },
-      { status: 400 },
-    );
-  }
-
-  if (input.length > MAX_INPUT_LEN) {
-    return NextResponse.json(
-      { error: "input too long" },
       { status: 400 },
     );
   }
@@ -79,6 +81,33 @@ export async function POST(req: Request) {
     );
   }
 
+  let songInput: { title: string; artist: string } | null = null;
+  let stringInput: string | null = null;
+
+  if (mode === "song") {
+    songInput = validateSongInput(input);
+    if (!songInput) {
+      return NextResponse.json(
+        { error: "song mode requires { title, artist } with both non-empty" },
+        { status: 400 },
+      );
+    }
+  } else {
+    if (!input || typeof input !== "string") {
+      return NextResponse.json(
+        { error: "mode and input required" },
+        { status: 400 },
+      );
+    }
+    if (input.length > MAX_INPUT_LEN) {
+      return NextResponse.json(
+        { error: "input too long" },
+        { status: 400 },
+      );
+    }
+    stringInput = input;
+  }
+
   if (!reserveSlot()) {
     return NextResponse.json(
       { error: "Server busy, try again shortly" },
@@ -93,7 +122,11 @@ export async function POST(req: Request) {
   try {
     const res = NextResponse.json({ jobId: "" });
     const sessionId = getOrSetSession(req, res);
-    job = createJob({ kind: "rank", mode, input, sessionId });
+    const jobInputStr =
+      songInput !== null
+        ? `${songInput.title} — ${songInput.artist}`
+        : stringInput!;
+    job = createJob({ kind: "rank", mode, input: jobInputStr, sessionId });
     const jobId = job.id;
 
     const clampedLimit =
@@ -104,16 +137,17 @@ export async function POST(req: Request) {
     const opts: RankOptions = {
       limit: clampedLimit,
       onProgress: (ev) => emit(jobId, ev),
+      jobId,
     };
 
-    const runner = async (): Promise<Track[]> => {
-      if (mode === "genre") return rankGenre(input, opts);
-      if (mode === "artist") return rankArtist(input, opts);
-      return rankSong(input, opts);
+    const runner = async (): Promise<{ tracks: Track[]; note?: string }> => {
+      if (mode === "genre") return rankGenre(stringInput!, opts);
+      if (mode === "artist") return rankArtist(stringInput!, opts);
+      return rankSong(songInput!, opts);
     };
 
     runner()
-      .then((tracks) => completeJob(jobId, tracks))
+      .then(({ tracks, note }) => completeJob(jobId, tracks, { note }))
       .catch((err: unknown) => {
         console.error(`[/api/rank] job ${jobId} failed:`, err);
         const raw = err instanceof Error ? err.message : String(err);
