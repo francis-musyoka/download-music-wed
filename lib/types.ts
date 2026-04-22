@@ -26,12 +26,18 @@ export interface DownloadedTrack {
 
 export type JobStage =
   | "queued"
+  | "understanding-query"
   | "scraping-spotify"
   | "enriching-youtube"
   | "scoring"
+  | "llm-reranking"
+  | "llm-reranked"
+  | "llm-degraded"
   | "downloading"
   | "complete"
   | "failed";
+
+export type LLMDegradeStep = "understand" | "rerank";
 
 export interface ProgressEvent {
   jobId: string;
@@ -41,6 +47,13 @@ export interface ProgressEvent {
   message?: string;
   track?: Track | DownloadedTrack;
   status?: "ok" | "skipped" | "failed";
+  note?: string;
+  degradeStep?: LLMDegradeStep;
+  rerankSummary?: {
+    kept: number;
+    dropped: number;
+    rejectCategories: Record<string, number>;
+  };
 }
 
 export interface Job {
@@ -65,3 +78,10 @@ export interface HealthStatus {
   playwright: boolean;
   diskFreeGb: number | null;
 }
+
+export interface SongInput {
+  title: string;
+  artist: string;
+}
+
+export type RankInput = string | SongInput;
