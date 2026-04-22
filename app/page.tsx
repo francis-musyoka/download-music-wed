@@ -333,18 +333,21 @@ export default function Page() {
   const submit = useCallback(
     async (p: {
       mode: Mode;
-      input: string;
+      input: string | { title: string; artist: string };
       limit?: number;
       name?: string;
     }): Promise<void> => {
       if (p.mode === "url") {
+        if (typeof p.input !== "string") return; // unreachable: url mode always passes string
         await startDownload({ url: p.input, playlistName: p.name });
         return;
       }
 
       setTracks([]);
       setStatus([]);
-      setInputLabel(`${p.mode} · ${p.input}`);
+      const labelInput =
+        typeof p.input === "string" ? p.input : `${p.input.title} — ${p.input.artist}`;
+      setInputLabel(`${p.mode} · ${labelInput}`);
       setBusy(true);
 
       let jobId: string;

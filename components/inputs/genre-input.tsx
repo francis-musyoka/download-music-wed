@@ -40,18 +40,18 @@ export function GenreInput({ genre, limit, name, onGenre, onLimit, onName }: Pro
           type="number"
           value={raw}
           min={1}
-          max={20}
+          max={10}
           onChange={(e) => {
             const v = e.target.value;
             setRaw(v);
             const n = parseInt(v, 10);
-            if (Number.isFinite(n) && n >= 1 && n <= 20) onLimit(n);
+            if (Number.isFinite(n) && n >= 1 && n <= 10) onLimit(n);
           }}
           onBlur={(e) => {
             // Read from DOM, not React state — the blur event can fire
             // before React has committed the latest onChange update.
             const n = parseInt(e.target.value, 10);
-            const clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1;
+            const clamped = Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 1;
             setRaw(String(clamped));
             onLimit(clamped);
           }}
@@ -62,7 +62,7 @@ export function GenreInput({ genre, limit, name, onGenre, onLimit, onName }: Pro
         <input
           type="text"
           value={name}
-          placeholder="Afrobeats 2026"
+          placeholder="Afrobeats 1026"
           onChange={(e) => onName(e.target.value)}
         />
       </div>

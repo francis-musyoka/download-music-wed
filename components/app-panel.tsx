@@ -23,7 +23,12 @@ export interface StatusLine {
 }
 
 interface Props {
-  onSubmit: (p: { mode: Mode; input: string; limit?: number; name?: string }) => void;
+  onSubmit: (p: {
+    mode: Mode;
+    input: string | { title: string; artist: string };
+    limit?: number;
+    name?: string;
+  }) => void;
   statusLines?: StatusLine[];
   busy?: boolean;
 }
@@ -36,7 +41,8 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
   const [artist, setArtist] = useState("");
   const [artistLimit, setArtistLimit] = useState(5);
   const [artistName, setArtistName] = useState("");
-  const [song, setSong] = useState("");
+  const [songTitle, setSongTitle] = useState("");
+  const [songArtist, setSongArtist] = useState("");
   const [url, setUrl] = useState("");
   const [urlName, setUrlName] = useState("");
 
@@ -57,7 +63,11 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
         name: artistName || `Best of ${artist}`,
       });
     } else if (mode === "song") {
-      onSubmit({ mode, input: song });
+      if (!songTitle.trim() || !songArtist.trim()) return;
+      onSubmit({
+        mode,
+        input: { title: songTitle.trim(), artist: songArtist.trim() },
+      });
     } else {
       onSubmit({ mode, input: url, name: urlName || "My Playlist" });
     }
@@ -71,7 +81,8 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
     artist,
     artistLimit,
     artistName,
-    song,
+    songTitle,
+    songArtist,
     url,
     urlName,
   ]);
@@ -121,7 +132,14 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
                 onName={setArtistName}
               />
             )}
-            {mode === "song" && <SongInput song={song} onSong={setSong} />}
+            {mode === "song" && (
+              <SongInput
+                title={songTitle}
+                artist={songArtist}
+                onTitle={setSongTitle}
+                onArtist={setSongArtist}
+              />
+            )}
             {mode === "url" && (
               <UrlInput
                 url={url}
