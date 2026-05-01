@@ -34,3 +34,4 @@ e2e/
 .claude
 .playwright-mcp
 .worktrees/
+.superpowers/

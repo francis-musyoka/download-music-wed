@@ -22,9 +22,9 @@ export function ValueProps() {
       <div className="container-x">
         <div className="value__head">
           <h2 className="display">
-            Not another
+            Hits, properly
             <br />
-            <em>generic</em> playlist app.
+            <em>pressed.</em>
           </h2>
           <p
             className="eyebrow"
@@ -32,9 +32,9 @@ export function ValueProps() {
           >
             Three reasons
             <br />
-            to stop trusting
+            the needle
             <br />
-            algorithm soup.
+            lands here.
           </p>
         </div>
         <div className="value__grid">

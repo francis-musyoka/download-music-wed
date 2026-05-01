@@ -3,8 +3,9 @@ import "./globals.css";
 import { Toaster } from "@/components/ui/toaster";
 
 export const metadata: Metadata = {
-  title: "Musicography",
-  description: "Music Downloader — Edition 001",
+  title: "Wax: Real hits, properly pressed",
+  description:
+    "An open hit detector. Cut from Spotify signal, YouTube data, and a healthy distrust of algorithms.",
 };
 
 export default function RootLayout({

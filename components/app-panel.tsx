@@ -99,9 +99,9 @@ export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
       <div className="container-x">
         <div className="app__head">
           <h2 className="display">
-            Find your
+            Drop the
             <br />
-            <em>music.</em>
+            <em>needle.</em>
           </h2>
           <StepsInline />
         </div>
@@ -114,7 +114,7 @@ export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
                 className={`console__tab${mode === m ? " active" : ""}`}
                 onClick={() => setMode(m)}
               >
-                ./{m.toUpperCase()}
+                {m.toUpperCase()}
               </button>
             ))}
           </div>
