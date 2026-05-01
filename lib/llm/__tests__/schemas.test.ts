@@ -68,17 +68,10 @@ test("UnderstoodSongSchema round-trips a spell-corrected song", () => {
   assert.equal(parsed.canonicalTitle, "Essence");
 });
 
-test("RerankResultSchema enforces llmScore bounds", () => {
+test("RerankResultSchema rejects an empty id", () => {
   assert.throws(() =>
     RerankResultSchema.parse({
-      results: [
-        {
-          id: "v1",
-          keep: true,
-          llmScore: 120,
-          reason: "too high",
-        },
-      ],
+      results: [{ id: "", keep: true }],
     }),
   );
 });
@@ -86,14 +79,8 @@ test("RerankResultSchema enforces llmScore bounds", () => {
 test("RerankResultSchema parses a keep/drop pair", () => {
   const parsed = RerankResultSchema.parse({
     results: [
-      { id: "v1", keep: true, llmScore: 92, reason: "canonical" },
-      {
-        id: "v2",
-        keep: false,
-        llmScore: 10,
-        rejectCategory: "wrong-genre",
-        reason: "afrobeats tagged as dancehall",
-      },
+      { id: "v1", keep: true },
+      { id: "v2", keep: false, rejectCategory: "wrong-genre" },
     ],
   });
   assert.equal(parsed.results.length, 2);

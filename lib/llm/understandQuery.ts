@@ -17,15 +17,6 @@ import type {
   UnderstoodSong,
 } from "./types.ts";
 import { understandCache, normalizeCacheKey } from "./understandCache.ts";
-import { createRequire } from "node:module";
-const requireCjs = createRequire(import.meta.url);
-const { getGenreConfig } = requireCjs("../pipeline/config/genres") as {
-  getGenreConfig: (name: string) => {
-    key: string;
-    config: { displayName: string; searchTerms?: string[] };
-    knownGenre: boolean;
-  };
-};
 
 export interface UnderstandInputs {
   genre: string;
@@ -87,34 +78,6 @@ export async function understandSong(
   return { mode: "song", ...data };
 }
 
-// Returns a synthetic UnderstoodGenre built from the static allowlist config
-// when the user's input matches a known genre. Avoids a round-trip to OpenAI
-// for the most common case. Returns null for unknown genres; caller falls
-// through to the LLM path.
-function tryGenreAllowlist(input: string): UnderstoodGenre | null {
-  const { config, knownGenre } = getGenreConfig(input);
-  if (!knownGenre) return null;
-  const synthetic: UnderstoodGenre = {
-    mode: "genre",
-    canonicalGenre: config.displayName,
-    displayName: config.displayName,
-    knownGenre: true,
-    spellCorrected: false,
-    originalInput: input,
-    // Schema caps at 6 items; slice defensively in case a config grows past that.
-    searchTerms: (config.searchTerms ?? []).slice(0, 6),
-  };
-  UnderstoodGenreSchema.parse({
-    canonicalGenre: synthetic.canonicalGenre,
-    displayName: synthetic.displayName,
-    knownGenre: synthetic.knownGenre,
-    spellCorrected: synthetic.spellCorrected,
-    originalInput: synthetic.originalInput,
-    searchTerms: synthetic.searchTerms,
-  });
-  return synthetic;
-}
-
 // Never throws on recoverable failures — returns null so the orchestrator can
 // degrade to raw-input search. The only error that propagates is a hard
 // rejectReason from the LLM, which should fail the job.
@@ -125,12 +88,6 @@ export async function understandQuerySafe<M extends keyof UnderstandInputs>(args
 }): Promise<{ ok: true; data: UnderstoodQuery } | { ok: false; reason: "degrade" | "rejected"; message: string }> {
   if (!LLM_CONFIG.enabled) {
     return { ok: false, reason: "degrade", message: "llm disabled" };
-  }
-
-  // Genre allowlist shortcircuit — cheaper than any cache read.
-  if (args.mode === "genre") {
-    const shortcut = tryGenreAllowlist(args.input as string);
-    if (shortcut) return { ok: true, data: shortcut };
   }
 
   // LRU cache lookup.

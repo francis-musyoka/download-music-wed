@@ -8,6 +8,12 @@ import { ArtistInput } from "./inputs/artist-input";
 import { SongInput } from "./inputs/song-input";
 import { UrlInput } from "./inputs/url-input";
 
+export interface Quota {
+  used: number;
+  max: number;
+  resetsAt: number;
+}
+
 const BUTTON_LABELS: Record<Mode, string> = {
   genre: "Search top tracks",
   artist: "Search top tracks",
@@ -31,9 +37,10 @@ interface Props {
   }) => void;
   statusLines?: StatusLine[];
   busy?: boolean;
+  quota?: Quota;
 }
 
-export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
+export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
   const [mode, setMode] = useState<Mode>("genre");
   const [genre, setGenre] = useState("afrobeats");
   const [genreLimit, setGenreLimit] = useState(10);
@@ -147,6 +154,18 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
                 onUrl={setUrl}
                 onName={setUrlName}
               />
+            )}
+            {quota && (mode === "genre" || mode === "artist") && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--fg-dim)",
+                  marginTop: 12,
+                }}
+              >
+                {quota.used} of {quota.max} searches used today
+                {quota.used >= quota.max && " — back at midnight UTC"}
+              </div>
             )}
             <div className="console__action">
               <button
