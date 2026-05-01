@@ -8,11 +8,16 @@ import {
   summarizeRejectCategories,
 } from "../llm/rerankCandidates.ts";
 import type { RerankCandidate } from "../llm/types.ts";
+import { applyNoiseFilter } from "./scoring/noiseFilter.ts";
+import { fetchUploadDates } from "./enrich/uploadDates.ts";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const spotifyMod = require("./scrapers/spotify") as {
-  collectCandidates: (genre: string) => Promise<Track[]>;
+  collectCandidates: (
+    genre: string,
+    opts?: { extraSearchTerms?: string[] },
+  ) => Promise<Track[]>;
   collectArtistCandidates: (artist: string) => Promise<Track[]>;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -251,7 +256,15 @@ export async function rankGenre(
     message: `Collecting candidates for "${effectiveGenre}"`,
   });
 
-  let candidates = await collectCandidates(effectiveGenre);
+  console.log("LLM SEARCH TERMS →→→→", {
+    effectiveGenre,
+    canonicalGenre: intent?.canonicalGenre,
+    searchTerms: intent?.searchTerms ?? [],
+    fromShortcircuit: intent?.knownGenre === true,
+  });
+  let candidates = await collectCandidates(effectiveGenre, {
+    extraSearchTerms: intent?.searchTerms ?? [],
+  });
   console.log("SCRAPED CANDIDATES GERNE SPOTIFY:::>>>>", candidates)
   if (candidates.length === 0) {
     onProgress({
@@ -268,6 +281,11 @@ export async function rankGenre(
   }
 
   await enrichCandidates(candidates, onProgress);
+  await fetchUploadDates(candidates, { onProgress });
+  candidates = applyNoiseFilter(candidates, "genre");
+  if (candidates.length === 0) {
+    throw new Error(`No non-noise candidates remained for "${effectiveGenre}".`);
+  }
   candidates = dedupeAgainstLibrary(candidates);
 
   if (candidates.length === 0) {
@@ -280,7 +298,7 @@ export async function rankGenre(
   console.log("RANKED CANDIDATE FROM rankCandidates ::>>>> ", ranked)
 
   // ── Hook 2: LLM rerank ─────────────────────────────────────────
-  const top30 = ranked.slice(0, 30);
+  const topN = ranked.slice(0, 25);
   let finalOrder: Track[] = ranked;
   let note: string | undefined;
 
@@ -290,7 +308,7 @@ export async function rankGenre(
       mode: "genre",
       intent,
       limit,
-      candidates: top30.map<RerankCandidate>((c) => ({
+      candidates: topN.map<RerankCandidate>((c) => ({
         id: (c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`),
         title: c.title,
         artist: c.artist,
@@ -304,7 +322,7 @@ export async function rankGenre(
 
     if (rerank.ok) {
       const byId = new Map(
-        top30.map((c) => [(c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`), c]),
+        topN.map((c) => [(c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`), c]),
       );
       const kept = rerank.kept
         .sort((a, b) => b.llmScore - a.llmScore)
@@ -381,6 +399,11 @@ export async function rankArtist(
     throw new Error(`No songs found for artist "${effectiveArtist}".`);
   }
 
+  await fetchUploadDates(candidates, { onProgress });
+  candidates = applyNoiseFilter(candidates, "artist");
+  if (candidates.length === 0) {
+    throw new Error(`No non-noise candidates remained for artist "${effectiveArtist}".`);
+  }
   candidates = dedupeAgainstLibrary(candidates);
   if (candidates.length === 0) {
     return { tracks: [] };
@@ -389,7 +412,7 @@ export async function rankArtist(
   onProgress({ stage: "scoring", message: "Scoring and ranking" });
   const ranked = rankCandidates(candidates);
 
-  const top30 = ranked.slice(0, 30);
+  const topN = ranked.slice(0, 20);
   let finalOrder: Track[] = ranked;
   let note: string | undefined;
 
@@ -399,7 +422,7 @@ export async function rankArtist(
       mode: "artist",
       intent,
       limit,
-      candidates: top30.map<RerankCandidate>((c) => ({
+      candidates: topN.map<RerankCandidate>((c) => ({
         id: (c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`),
         title: c.title,
         artist: c.artist,
@@ -412,7 +435,7 @@ export async function rankArtist(
 
     if (rerank.ok) {
       const byId = new Map(
-        top30.map((c) => [(c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`), c]),
+        topN.map((c) => [(c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`), c]),
       );
       const kept = rerank.kept
         .sort((a, b) => b.llmScore - a.llmScore)
@@ -493,18 +516,24 @@ export async function rankSong(
     throw new Error(`No results found for "${canonicalArtist} - ${canonicalTitle}".`);
   }
 
-  valid.sort((a, b) => b.views - a.views);
-
-  const tracks: Track[] = valid.slice(0, limit).map((r) => ({
-    videoId: r.videoId,
-    title: r.title,
-    artist: r.channel || canonicalArtist,
-    duration: r.duration,
-    views: r.views,
-    uploadDate: r.uploadDate ?? undefined,
-    videoUrl: r.url,
-    source: "youtube",
-  }));
+  const filtered = applyNoiseFilter(
+    valid.map((r) => ({
+      videoId: r.videoId,
+      title: r.title,
+      artist: r.channel || canonicalArtist,
+      duration: r.duration,
+      views: r.views,
+      uploadDate: r.uploadDate ?? undefined,
+      videoUrl: r.url,
+      source: "youtube",
+    })),
+    "song",
+  );
+  if (filtered.length === 0) {
+    throw new Error(`No non-noise results for "${canonicalArtist} - ${canonicalTitle}".`);
+  }
+  filtered.sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
+  const tracks: Track[] = filtered.slice(0, limit);
 
   return { tracks };
 }
