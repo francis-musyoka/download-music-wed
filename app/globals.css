@@ -220,6 +220,8 @@ body::before {
   overflow: hidden;
   border-bottom: 1px solid var(--line);
 }
+/* Hero photo: Jakob Rosen on Unsplash, KA1WM_yQGF8.
+   Free Unsplash License. https://unsplash.com/photos/KA1WM_yQGF8 */
 .hero__bg {
   position: absolute;
   inset: 0;
@@ -227,7 +229,10 @@ body::before {
   background:
     radial-gradient(ellipse at 20% 50%, rgba(255, 90, 31, 0.18), transparent 50%),
     radial-gradient(ellipse at 85% 20%, rgba(193, 255, 0, 0.08), transparent 45%),
-    radial-gradient(ellipse at 50% 110%, rgba(255, 90, 31, 0.12), transparent 55%);
+    radial-gradient(ellipse at 50% 110%, rgba(255, 90, 31, 0.12), transparent 55%),
+    linear-gradient(rgba(14, 14, 14, 0.72), rgba(14, 14, 14, 0.72)),
+    url('/hero-bg.jpg') center / cover no-repeat,
+    #0e0e0e;
 }
 .hero__grid-lines {
   position: absolute;
@@ -271,7 +276,7 @@ body::before {
 }
 .hero__title {
   margin: 44px 0 0;
-  font-size: clamp(72px, 13vw, 200px);
+  font-size: clamp(40px, 13vw, 200px);
   font-variation-settings: "SOFT" 80, "WONK" 1, "opsz" 144;
   font-weight: 360;
   letter-spacing: -0.06em;
@@ -375,7 +380,7 @@ body::before {
   font-family: var(--ff-display);
   font-variation-settings: "SOFT" 60, "WONK" 1, "opsz" 144;
   font-weight: 380;
-  font-size: clamp(48px, 6vw, 96px);
+  font-size: clamp(28px, 6vw, 96px);
   letter-spacing: -0.04em;
   line-height: 0.95;
   max-width: 760px;
@@ -459,7 +464,7 @@ body::before {
   font-family: var(--ff-display);
   font-variation-settings: "SOFT" 60, "WONK" 1, "opsz" 144;
   font-weight: 380;
-  font-size: clamp(52px, 7vw, 120px);
+  font-size: clamp(32px, 7vw, 120px);
   letter-spacing: -0.04em;
   line-height: 0.9;
 }
@@ -779,7 +784,7 @@ body::before {
   margin: 0 0 40px;
   font-family: var(--ff-display);
   font-variation-settings: "SOFT" 60, "WONK" 1, "opsz" 144;
-  font-size: 56px;
+  font-size: clamp(28px, 6vw, 56px);
   font-weight: 420;
   line-height: 0.95;
   letter-spacing: -0.04em;
@@ -856,7 +861,7 @@ body::before {
   font-family: var(--ff-display);
   font-variation-settings: "SOFT" 60, "WONK" 1, "opsz" 144;
   font-weight: 380;
-  font-size: clamp(48px, 6vw, 96px);
+  font-size: clamp(28px, 6vw, 96px);
   letter-spacing: -0.04em;
   line-height: 0.95;
 }
@@ -1158,7 +1163,7 @@ body::before {
   font-family: var(--ff-display);
   font-variation-settings: "SOFT" 60, "WONK" 1, "opsz" 144;
   font-weight: 380;
-  font-size: clamp(48px, 6vw, 96px);
+  font-size: clamp(28px, 6vw, 96px);
   letter-spacing: -0.04em;
   line-height: 0.95;
 }
@@ -1481,7 +1486,7 @@ body::before {
   margin: 0 0 8px;
   font-family: var(--ff-display);
   font-variation-settings: "SOFT" 60, "WONK" 1, "opsz" 72;
-  font-size: 40px;
+  font-size: clamp(24px, 5vw, 40px);
   font-weight: 450;
   line-height: 1;
   letter-spacing: -0.03em;
@@ -1594,6 +1599,28 @@ body::before {
   }
   .foot__grid {
     grid-template-columns: 1fr 1fr;
+  }
+  .console__tab {
+    padding: 14px 8px;
+    font-size: 12px;
+    letter-spacing: 0.1em;
+    text-align: center;
+  }
+  .console__tab.active::before {
+    content: "▸";
+  }
+  .app__head {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 24px;
+  }
+  .chart__head {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 24px;
+  }
+  .chart__bulk {
+    flex-wrap: wrap;
   }
 }
 

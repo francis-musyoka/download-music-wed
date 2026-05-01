@@ -16,12 +16,10 @@ export function Hero({ onHowClick }: HeroProps) {
           <div className="hero__meta">
             <div className="hero__meta-row">
               <span className="dot" />
-              <span>Signal Live</span>
-              <span>·</span>
-              <span>Scoring tracks across genres</span>
+              <span>The needle is hot</span>
             </div>
             <div className="hero__meta-row">
-              Issue 001 · Vol. 01 · The Hit Detector
+              Wax · Cut 001 · 2026
             </div>
           </div>
           <h1 className="hero__title display">
@@ -53,9 +51,9 @@ export function Hero({ onHowClick }: HeroProps) {
           </div>
         </div>
         <div className="hero__edition">
-          <span>Edition</span>
+          <span>Cut</span>
           <strong>001</strong>
-          <span>2026 · Vol. 01</span>
+          <span>Side A · 2026</span>
         </div>
       </div>
       <Marquee />
