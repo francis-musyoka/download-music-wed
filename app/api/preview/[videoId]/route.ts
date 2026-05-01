@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { NextResponse } from "next/server";
+import { checkRate, clientIp } from "@/lib/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -90,10 +91,19 @@ function resolveStreamUrl(videoId: string): Promise<ResolveResult> {
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
   const { videoId } = await params;
+
+  const ip = clientIp(req);
+  const retry = checkRate(ip, false);
+  if (retry !== null) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(retry) } },
+    );
+  }
 
   if (!VIDEO_ID_RE.test(videoId)) {
     return NextResponse.json(

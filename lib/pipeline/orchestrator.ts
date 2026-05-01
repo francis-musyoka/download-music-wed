@@ -286,7 +286,7 @@ export async function rankGenre(
   const llmInput = ranked.slice(0, LLM_INPUT_CAP);
 
   // ── Hook 2: LLM keep/reject classifier ──
-  let kept: Track[] = ranked;
+  let kept: Track[] = llmInput;
   if (intent) {
     onProgress({
       stage: "llm-reranking",
@@ -326,8 +326,10 @@ export async function rankGenre(
         degradeStep: "rerank",
         message: result.reason,
       });
-      // Degrade: trust manual rank only, plus the regex noise filter.
-      kept = ranked;
+      // Degrade: trust manual rank only over the same top-100 pool the
+      // happy path would have seen. Keeps results consistent across
+      // LLM-up and LLM-down states.
+      kept = llmInput;
     }
   }
 
@@ -391,7 +393,7 @@ export async function rankArtist(
   const LLM_INPUT_CAP = 100;
   const llmInput = ranked.slice(0, LLM_INPUT_CAP);
 
-  let kept: Track[] = ranked;
+  let kept: Track[] = llmInput;
   if (intent) {
     onProgress({
       stage: "llm-reranking",
@@ -430,7 +432,7 @@ export async function rankArtist(
         degradeStep: "rerank",
         message: result.reason,
       });
-      kept = ranked;
+      kept = llmInput;
     }
   }
 

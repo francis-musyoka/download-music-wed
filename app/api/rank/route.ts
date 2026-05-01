@@ -60,36 +60,7 @@ export async function POST(req: Request) {
   }
   const { mode, input, limit } = body;
 
-  const heavy = mode === "genre" || mode === "artist";
-
-  // Helper: preserve the Set-Cookie added by getOrSetSession when returning
-  // an early 429. Without this, first-time users who hit the rate limit on
-  // their very first request never receive a session cookie.
-  const errorResponse = (status: number, errorBody: object, retryAfter: number) => {
-    const headers = new Headers(res.headers);
-    headers.set("Retry-After", String(retryAfter));
-    headers.set("Content-Type", "application/json");
-    return new NextResponse(JSON.stringify(errorBody), { status, headers });
-  };
-
-  const retry = checkRate(ip, heavy);
-  if (retry !== null) {
-    return errorResponse(429, { error: "Too many requests" }, retry);
-  }
-
-  if (heavy) {
-    const dayRetry = checkDaily(sessionId);
-    if (dayRetry !== null) {
-      return errorResponse(
-        429,
-        {
-          error: "Daily search limit reached. Try again tomorrow.",
-          retryAfter: dayRetry,
-        },
-        dayRetry,
-      );
-    }
-  }
+  // ── Validation FIRST — never charge rate limits for invalid requests. ──
 
   if (!mode) {
     return NextResponse.json(
@@ -137,6 +108,39 @@ export async function POST(req: Request) {
       );
     }
     stringInput = input;
+  }
+
+  // ── Rate limits — only charged for fully validated requests. ──
+
+  const heavy = mode === "genre" || mode === "artist";
+
+  // Helper: preserve the Set-Cookie added by getOrSetSession when returning
+  // an early 429. Without this, first-time users who hit the rate limit on
+  // their very first request never receive a session cookie.
+  const errorResponse = (status: number, errorBody: object, retryAfter: number) => {
+    const headers = new Headers(res.headers);
+    headers.set("Retry-After", String(retryAfter));
+    headers.set("Content-Type", "application/json");
+    return new NextResponse(JSON.stringify(errorBody), { status, headers });
+  };
+
+  const retry = checkRate(ip, heavy);
+  if (retry !== null) {
+    return errorResponse(429, { error: "Too many requests" }, retry);
+  }
+
+  if (heavy) {
+    const dayRetry = checkDaily(sessionId);
+    if (dayRetry !== null) {
+      return errorResponse(
+        429,
+        {
+          error: "Daily search limit reached. Try again tomorrow.",
+          retryAfter: dayRetry,
+        },
+        dayRetry,
+      );
+    }
   }
 
   if (!reserveSlot()) {
