@@ -59,7 +59,7 @@ export async function GET(
   void archive.finalize();
 
   const webStream = Readable.toWeb(pass) as ReadableStream<Uint8Array>;
-  const filename = safeFilename(`musicography-${jobId.slice(0, 8)}`, "musicography") + ".zip";
+  const filename = safeFilename(`wax-${jobId.slice(0, 8)}`, "wax") + ".zip";
 
   return new Response(webStream, {
     status: 200,

@@ -23,11 +23,11 @@ import type {
 type Row = Track | DownloadedTrack;
 
 const STAGE_LABELS: Record<string, string> = {
-  "scraping-spotify": "Scraping Spotify",
-  "enriching-youtube": "Enriching with YouTube",
-  "enriching-dates": "Fetching release dates",
-  scoring: "Scoring hits",
-  downloading: "Downloading tracks",
+  "scraping-spotify": "Crate digging",
+  "enriching-youtube": "Sourcing audio",
+  "enriching-dates": "Reading press dates",
+  scoring: "Scoring the cut",
+  downloading: "Pressing tracks",
 };
 
 interface LastDownloadJob {

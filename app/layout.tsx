@@ -5,7 +5,7 @@ import { Toaster } from "@/components/ui/toaster";
 export const metadata: Metadata = {
   title: "Wax: Real hits, properly pressed",
   description:
-    "An open hit detector. Cut from Spotify signal, YouTube data, and a healthy distrust of algorithms.",
+    "An open hit detector. Cut from curated playlists, stream-count signal, and a healthy distrust of algorithms.",
 };
 
 export default function RootLayout({

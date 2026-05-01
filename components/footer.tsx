@@ -8,8 +8,8 @@ export function Footer() {
               Wax<em>.</em>
             </h3>
             <p>
-              An open hit detector. Cut from Spotify signal, YouTube data, and a
-              healthy distrust of algorithms.
+              An open hit detector. Cut from curated playlists, stream-count
+              signal, and a healthy distrust of algorithms.
             </p>
           </div>
           <dl className="foot__col">

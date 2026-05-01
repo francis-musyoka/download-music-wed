@@ -2,7 +2,7 @@ const PROPS: Array<{ num: string; title: [string, string]; body: string }> = [
   {
     num: "01 / DETECTION",
     title: ["Real hits,", "not filler."],
-    body: "Cross-references Spotify's curated playlists with YouTube signal, scores every candidate on playlist position, view count, and recency. You get what people actually listen to — ranked.",
+    body: "Crate-digs through curated playlists, cross-cuts with stream-count signal, scores every candidate on playlist position, plays, and recency. You get what people actually listen to — ranked.",
   },
   {
     num: "02 / FIDELITY",

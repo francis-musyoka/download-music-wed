@@ -11,7 +11,7 @@ const STEPS: Array<[string, string, string]> = [
   [
     "02",
     "We scan the web",
-    "Scrapes Spotify's curated genre playlists for real, human-picked hits. Enriches each candidate with YouTube view counts and upload dates.",
+    "Crate-digs through curated genre playlists for real, human-picked hits. Enriches each candidate with stream counts and release dates.",
   ],
   [
     "03",

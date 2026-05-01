@@ -169,7 +169,7 @@ async function enrichCandidates(
     stage: "enriching-youtube",
     current: 0,
     total: needsEnrichment.length,
-    message: `Enriching ${needsEnrichment.length} candidates with YouTube data`,
+    message: `Sourcing audio for ${needsEnrichment.length} candidates`,
   });
 
   for (let i = 0; i < needsEnrichment.length; i++) {
@@ -259,7 +259,7 @@ export async function rankGenre(
   if (candidates.length === 0) {
     onProgress({
       stage: "scraping-spotify",
-      message: "Spotify returned zero candidates — falling back to YouTube",
+      message: "First crate came up empty — widening the search",
     });
     const query = intent?.searchTerms?.[0] ?? effectiveGenre;
     candidates = await scrapeYTMusicFallback(query, limit * 3);
