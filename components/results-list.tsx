@@ -8,6 +8,7 @@ type Row = Track | DownloadedTrack;
 interface Props {
   tracks: Row[];
   inputLabel: string;
+  note?: string;
   playingKey?: string | null;
   onPlay: (t: Row) => void;
   onDownloadOne: (t: Row) => void;
@@ -27,6 +28,7 @@ function rowKey(t: Row, i: number): string {
 export function ResultsList({
   tracks,
   inputLabel,
+  note,
   playingKey,
   onPlay,
   onDownloadOne,
@@ -65,6 +67,21 @@ export function ResultsList({
               <strong style={{ color: "var(--fg)" }}>↓</strong> to save it to
               your device. Or grab all {tracks.length} at once.
             </p>
+            {note && (
+              <p
+                role="status"
+                style={{
+                  color: "var(--fg-dim)",
+                  fontSize: 14,
+                  lineHeight: 1.6,
+                  margin: "12px 0 0",
+                  maxWidth: 520,
+                  fontStyle: "italic",
+                }}
+              >
+                {note}
+              </p>
+            )}
           </div>
           <div className="chart__bulk">
             <button

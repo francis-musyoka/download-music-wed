@@ -8,6 +8,12 @@ import { ArtistInput } from "./inputs/artist-input";
 import { SongInput } from "./inputs/song-input";
 import { UrlInput } from "./inputs/url-input";
 
+export interface Quota {
+  used: number;
+  max: number;
+  resetsAt: number;
+}
+
 const BUTTON_LABELS: Record<Mode, string> = {
   genre: "Search top tracks",
   artist: "Search top tracks",
@@ -23,12 +29,18 @@ export interface StatusLine {
 }
 
 interface Props {
-  onSubmit: (p: { mode: Mode; input: string; limit?: number; name?: string }) => void;
+  onSubmit: (p: {
+    mode: Mode;
+    input: string | { title: string; artist: string };
+    limit?: number;
+    name?: string;
+  }) => void;
   statusLines?: StatusLine[];
   busy?: boolean;
+  quota?: Quota;
 }
 
-export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
+export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
   const [mode, setMode] = useState<Mode>("genre");
   const [genre, setGenre] = useState("afrobeats");
   const [genreLimit, setGenreLimit] = useState(10);
@@ -36,7 +48,8 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
   const [artist, setArtist] = useState("");
   const [artistLimit, setArtistLimit] = useState(5);
   const [artistName, setArtistName] = useState("");
-  const [song, setSong] = useState("");
+  const [songTitle, setSongTitle] = useState("");
+  const [songArtist, setSongArtist] = useState("");
   const [url, setUrl] = useState("");
   const [urlName, setUrlName] = useState("");
 
@@ -57,7 +70,11 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
         name: artistName || `Best of ${artist}`,
       });
     } else if (mode === "song") {
-      onSubmit({ mode, input: song });
+      if (!songTitle.trim() || !songArtist.trim()) return;
+      onSubmit({
+        mode,
+        input: { title: songTitle.trim(), artist: songArtist.trim() },
+      });
     } else {
       onSubmit({ mode, input: url, name: urlName || "My Playlist" });
     }
@@ -71,7 +88,8 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
     artist,
     artistLimit,
     artistName,
-    song,
+    songTitle,
+    songArtist,
     url,
     urlName,
   ]);
@@ -81,9 +99,9 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
       <div className="container-x">
         <div className="app__head">
           <h2 className="display">
-            Find your
+            Drop the
             <br />
-            <em>music.</em>
+            <em>needle.</em>
           </h2>
           <StepsInline />
         </div>
@@ -96,7 +114,7 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
                 className={`console__tab${mode === m ? " active" : ""}`}
                 onClick={() => setMode(m)}
               >
-                ./{m.toUpperCase()}
+                {m.toUpperCase()}
               </button>
             ))}
           </div>
@@ -121,7 +139,14 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
                 onName={setArtistName}
               />
             )}
-            {mode === "song" && <SongInput song={song} onSong={setSong} />}
+            {mode === "song" && (
+              <SongInput
+                title={songTitle}
+                artist={songArtist}
+                onTitle={setSongTitle}
+                onArtist={setSongArtist}
+              />
+            )}
             {mode === "url" && (
               <UrlInput
                 url={url}
@@ -129,6 +154,18 @@ export function AppPanel({ onSubmit, statusLines = [], busy }: Props) {
                 onUrl={setUrl}
                 onName={setUrlName}
               />
+            )}
+            {quota && (mode === "genre" || mode === "artist") && (
+              <div
+                style={{
+                  fontSize: 12,
+                  color: "var(--fg-dim)",
+                  marginTop: 12,
+                }}
+              >
+                {quota.used} of {quota.max} searches used today
+                {quota.used >= quota.max && " — back at midnight UTC"}
+              </div>
             )}
             <div className="console__action">
               <button

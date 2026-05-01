@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { NextResponse } from "next/server";
+import { checkRate, clientIp } from "@/lib/limits";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,7 +67,11 @@ function resolveStreamUrl(videoId: string): Promise<ResolveResult> {
       "yt-dlp",
       [
         "-f",
-        "bestaudio[ext=m4a]/bestaudio/best",
+        // Audio-only formats only — no fallback to `best`. A combined
+        // audio+video format from `best` can resolve to a manifest URL
+        // that chains additional tracks (especially on YouTube Music Topic
+        // channels). 502 is preferable to playing the wrong content.
+        "bestaudio[ext=m4a]/bestaudio",
         "-g",
         `https://www.youtube.com/watch?v=${videoId}`,
         "--no-warnings",
@@ -90,10 +95,19 @@ function resolveStreamUrl(videoId: string): Promise<ResolveResult> {
 }
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ videoId: string }> },
 ) {
   const { videoId } = await params;
+
+  const ip = clientIp(req);
+  const retry = checkRate(ip, false);
+  if (retry !== null) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(retry) } },
+    );
+  }
 
   if (!VIDEO_ID_RE.test(videoId)) {
     return NextResponse.json(

@@ -47,7 +47,7 @@ function sanitizeClientError(raw: string): string {
 
 export async function POST(req: Request) {
   const ip = clientIp(req);
-  const retry = checkRate(ip);
+  const retry = checkRate(ip, false);
   if (retry !== null) {
     return NextResponse.json(
       { error: "Too many requests" },
@@ -84,6 +84,24 @@ export async function POST(req: Request) {
       { error: "URL not allowed. Only youtube.com / youtu.be over https." },
       { status: 400 },
     );
+  }
+
+  if (hasTracks) {
+    const tracks = body.tracks as Track[];
+    for (let i = 0; i < tracks.length; i++) {
+      const u = tracks[i].videoUrl;
+      // Tracks without videoUrl are valid — orchestrator falls back to
+      // yt-dlp's internal search. We only validate URLs that would be
+      // passed to yt-dlp directly.
+      if (typeof u === "string" && u.length > 0 && !isAllowedUrl(u)) {
+        return NextResponse.json(
+          {
+            error: `Track ${i} has a videoUrl outside the allowed hosts. Only youtube.com / youtu.be over https.`,
+          },
+          { status: 400 },
+        );
+      }
+    }
   }
 
   if (!reserveSlot()) {

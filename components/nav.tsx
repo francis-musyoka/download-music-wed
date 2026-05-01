@@ -9,7 +9,7 @@ export function Nav({ onHowClick }: NavProps) {
     <nav className="nav-bar">
       <div className="nav-brand">
         <strong>
-          Musicography
+          Wax
           <em style={{ color: "var(--accent)", fontStyle: "italic" }}>.</em>
         </strong>
       </div>

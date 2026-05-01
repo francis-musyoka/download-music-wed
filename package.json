@@ -7,6 +7,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
+    "test": "node --test --experimental-strip-types 'lib/llm/__tests__/**/*.test.ts' 'lib/pipeline/__tests__/**/*.test.ts'",
+    "e2e": "node --test --experimental-strip-types 'e2e/song-requires-artist.spec.ts'",
+    "eval": "node --experimental-strip-types scripts/eval-search.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -19,11 +22,13 @@
     "clsx": "^2.1.1",
     "lucide-react": "^1.8.0",
     "next": "^15.5.15",
+    "openai": "^4.104.0",
     "pino": "^9.5.0",
     "playwright": "^1.59.1",
     "react": "19.0.0",
     "react-dom": "19.0.0",
-    "tailwind-merge": "^3.5.0"
+    "tailwind-merge": "^3.5.0",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@types/archiver": "^6.0.2",
@@ -34,6 +39,7 @@
     "postcss": "^8.4.49",
     "tailwindcss": "^3.4.15",
     "tailwindcss-animate": "^1.0.7",
+    "tiktoken": "^1.0.22",
     "typescript": "^5.7.2"
   }
 }

@@ -98,13 +98,18 @@ export function subscribe(
 export function completeJob(
   jobId: string,
   result: Job["result"],
-  finalStage: JobStage = "complete",
+  extras: { note?: string; finalStage?: JobStage } = {},
 ): void {
   const job = JOBS.get(jobId);
   if (!job) return;
+  const finalStage = extras.finalStage ?? "complete";
   job.result = result;
   job.stage = finalStage;
-  emit(jobId, { stage: finalStage, message: "Job complete" });
+  emit(jobId, {
+    stage: finalStage,
+    message: "Job complete",
+    note: extras.note,
+  });
   job.subscribers.clear();
   if (job.holdsSlot) {
     releaseSlot();

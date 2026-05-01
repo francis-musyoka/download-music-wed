@@ -14,7 +14,8 @@ interface Props {
 }
 
 function fmtDur(sec?: number) {
-  if (!sec) return "?:??";
+
+  if (!sec) return "";
   return `${Math.floor(sec / 60)}:${String(sec % 60).padStart(2, "0")}`;
 }
 
@@ -46,7 +47,7 @@ export const TrackCard = memo(function TrackCard({
         <div className="artist">{t.artist}</div>
       </div>
       <div className="chart__meta">
-        <span>{fmtDur(t.duration)}</span>
+        {t.duration && <span>{fmtDur(t.duration)}</span>}
         {plays && <span>{plays}</span>}
         {score && <span className="score">{score}</span>}
       </div>

@@ -54,9 +54,9 @@ export function HowToDownload() {
             </div>
             <h3 className="how__step-title">Get ranked results</h3>
             <p className="how__step-body">
-              We pull from Spotify and YouTube, score every track, and show you
-              the <strong>top hits</strong> — sorted by plays, position, and
-              recency.
+              We crate-dig curated playlists, cross-cut stream-count data,
+              score every track, and show you the <strong>top hits</strong> —
+              sorted by plays, position, and recency.
             </p>
           </div>
 

@@ -32,16 +32,16 @@ export function ArtistInput({ artist, limit, name, onArtist, onLimit, onName }: 
           type="number"
           value={raw}
           min={1}
-          max={20}
+          max={10}
           onChange={(e) => {
             const v = e.target.value;
             setRaw(v);
             const n = parseInt(v, 10);
-            if (Number.isFinite(n) && n >= 1 && n <= 20) onLimit(n);
+            if (Number.isFinite(n) && n >= 1 && n <= 10) onLimit(n);
           }}
           onBlur={(e) => {
             const n = parseInt(e.target.value, 10);
-            const clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1;
+            const clamped = Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 1;
             setRaw(String(clamped));
             onLimit(clamped);
           }}

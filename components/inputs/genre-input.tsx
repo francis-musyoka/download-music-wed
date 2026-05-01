@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { Dropdown } from "@/components/dropdown";
 
-const GENRES = [
-  "afrobeats", "amapiano", "hip-hop", "pop", "reggae", "gospel",
-  "dancehall", "r&b", "classical", "latin", "reggaeton", "k-pop",
-  "jazz", "electronic",
+// Suggestions for the autocomplete datalist. Mirrors the keys in
+// lib/pipeline/config/genres.js. Users are NOT limited to this list — the
+// LLM understand step canonicalizes whatever they type and generates search
+// terms for unknown genres.
+const GENRE_SUGGESTIONS = [
+  "afrobeats", "amapiano", "bongo-flava", "classical", "country",
+  "dancehall", "drill", "electronic", "gengetone", "gospel", "hip-hop",
+  "indie", "jazz", "k-pop", "latin", "pop", "r&b", "reggae", "reggaeton",
+  "rock",
 ];
 
 interface Props {
@@ -25,14 +29,23 @@ export function GenreInput({ genre, limit, name, onGenre, onLimit, onName }: Pro
   return (
     <div className="console__form" data-form="genre">
       <div className="field">
-        <label htmlFor="genre-trigger">Genre</label>
-        <Dropdown
-          id="genre-trigger"
-          label="Genre"
+        <label htmlFor="genre-input">Genre</label>
+        <input
+          id="genre-input"
+          type="text"
           value={genre}
-          options={GENRES}
-          onChange={onGenre}
+          list="genre-suggestions"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder="afrobeats, bongo rb, trap soul…"
+          onChange={(e) => onGenre(e.target.value)}
+          onBlur={(e) => onGenre(e.target.value.trim().toLowerCase())}
         />
+        <datalist id="genre-suggestions">
+          {GENRE_SUGGESTIONS.map((g) => (
+            <option key={g} value={g} />
+          ))}
+        </datalist>
       </div>
       <div className="field">
         <label>Limit</label>
@@ -40,18 +53,16 @@ export function GenreInput({ genre, limit, name, onGenre, onLimit, onName }: Pro
           type="number"
           value={raw}
           min={1}
-          max={20}
+          max={10}
           onChange={(e) => {
             const v = e.target.value;
             setRaw(v);
             const n = parseInt(v, 10);
-            if (Number.isFinite(n) && n >= 1 && n <= 20) onLimit(n);
+            if (Number.isFinite(n) && n >= 1 && n <= 10) onLimit(n);
           }}
           onBlur={(e) => {
-            // Read from DOM, not React state — the blur event can fire
-            // before React has committed the latest onChange update.
             const n = parseInt(e.target.value, 10);
-            const clamped = Number.isFinite(n) ? Math.min(20, Math.max(1, n)) : 1;
+            const clamped = Number.isFinite(n) ? Math.min(10, Math.max(1, n)) : 1;
             setRaw(String(clamped));
             onLimit(clamped);
           }}
@@ -62,7 +73,7 @@ export function GenreInput({ genre, limit, name, onGenre, onLimit, onName }: Pro
         <input
           type="text"
           value={name}
-          placeholder="Afrobeats 2026"
+          placeholder="Afrobeats 1026"
           onChange={(e) => onName(e.target.value)}
         />
       </div>

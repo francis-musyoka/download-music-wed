@@ -11,7 +11,7 @@ const STEPS: Array<[string, string, string]> = [
   [
     "02",
     "We scan the web",
-    "Scrapes Spotify's curated genre playlists for real, human-picked hits. Enriches each candidate with YouTube view counts and upload dates.",
+    "Crate-digs through curated genre playlists for real, human-picked hits. Enriches each candidate with stream counts and release dates.",
   ],
   [
     "03",
@@ -50,10 +50,10 @@ export function HowItWorksModal({ open, onOpenChange }: Props) {
           aria-describedby={undefined}
         >
           <DialogPrimitive.Title className="sr-only">
-            How the engine works
+            How the cut is made
           </DialogPrimitive.Title>
           <div className="modal__head">
-            <span className="eyebrow">Read me · How the engine works</span>
+            <span className="eyebrow">Liner notes · How the cut is made</span>
             <DialogPrimitive.Close
               className="modal__close"
               aria-label="Close"
@@ -65,7 +65,7 @@ export function HowItWorksModal({ open, onOpenChange }: Props) {
             <h3 className="modal__title display">
               Six steps from
               <br />
-              <em>input</em> to ear.
+              <em>signal</em> to ear.
             </h3>
             <div className="modal__steps">
               {STEPS.map(([n, t, b]) => (

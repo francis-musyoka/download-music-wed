@@ -2,11 +2,22 @@ import { basename, extname } from "node:path";
 import { statSync } from "node:fs";
 import type { DownloadedTrack, ProgressEvent, Track } from "../types";
 import { ensureDirs } from "./deps";
+import { understandQuerySafe } from "../llm/understandQuery.ts";
+import {
+  rerankCandidatesSafe,
+  summarizeRejectCategories,
+} from "../llm/rerankCandidates.ts";
+import type { RerankCandidate } from "../llm/types.ts";
+import { applyNoiseFilter } from "./scoring/noiseFilter.ts";
+import { fetchUploadDates } from "./enrich/uploadDates.ts";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const spotifyMod = require("./scrapers/spotify") as {
-  collectCandidates: (genre: string) => Promise<Track[]>;
+  collectCandidates: (
+    genre: string,
+    opts?: { extraSearchTerms?: string[] },
+  ) => Promise<Track[]>;
   collectArtistCandidates: (artist: string) => Promise<Track[]>;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -83,12 +94,18 @@ export type OnProgress = (ev: Omit<ProgressEvent, "jobId">) => void;
 export interface RankOptions {
   limit?: number;
   onProgress?: OnProgress;
+  jobId?: string;
 }
 
 export interface DownloadOptions {
   tracks: Track[];
   playlistName?: string;
   onProgress?: OnProgress;
+}
+
+export interface RankResult {
+  tracks: Track[];
+  note?: string;
 }
 
 // ── Helpers ──
@@ -127,6 +144,7 @@ async function scrapeYTMusicFallback(
     .map((r) => ({
       title: r.title,
       artist: r.channel || "Unknown",
+      channel: r.channel,
       playlistCount: 1,
       bestPosition: 50,
       views: r.views,
@@ -151,7 +169,7 @@ async function enrichCandidates(
     stage: "enriching-youtube",
     current: 0,
     total: needsEnrichment.length,
-    message: `Enriching ${needsEnrichment.length} candidates with YouTube data`,
+    message: `Sourcing audio for ${needsEnrichment.length} candidates`,
   });
 
   for (let i = 0; i < needsEnrichment.length; i++) {
@@ -204,87 +222,267 @@ function toDownloadedTrack(
 export async function rankGenre(
   genre: string,
   opts: RankOptions = {},
-): Promise<Track[]> {
+): Promise<RankResult> {
   ensureDirs();
   const onProgress = opts.onProgress ?? noop;
   const limit = opts.limit ?? DEFAULT_LIMIT;
 
+  // ── Hook 1: Query understanding ──
+  onProgress({ stage: "understanding-query", message: "Understanding query" });
+  const understood = await understandQuerySafe({
+    mode: "genre",
+    input: genre,
+    jobId: opts.jobId,
+  });
+  if (!understood.ok && understood.reason === "rejected") {
+    throw new Error(understood.message);
+  }
+  const intent =
+    understood.ok && understood.data.mode === "genre" ? understood.data : null;
+  const effectiveGenre = intent?.canonicalGenre ?? genre;
+  if (!understood.ok) {
+    onProgress({
+      stage: "llm-degraded",
+      degradeStep: "understand",
+      message: understood.message,
+    });
+  }
+
+  // ── Scrape ──
   onProgress({
     stage: "scraping-spotify",
-    message: `Collecting candidates for "${genre}"`,
+    message: `Collecting candidates for "${effectiveGenre}"`,
   });
-
-  let candidates = await collectCandidates(genre);
-
+  let candidates = await collectCandidates(effectiveGenre, {
+    extraSearchTerms: intent?.searchTerms ?? [],
+  });
   if (candidates.length === 0) {
     onProgress({
       stage: "scraping-spotify",
-      message: "Spotify returned zero candidates — falling back to YouTube",
+      message: "First crate came up empty — widening the search",
     });
-    candidates = await scrapeYTMusicFallback(genre, limit * 3);
+    const query = intent?.searchTerms?.[0] ?? effectiveGenre;
+    candidates = await scrapeYTMusicFallback(query, limit * 3);
   }
-
   if (candidates.length === 0) {
-    throw new Error(`No songs found for genre "${genre}".`);
+    throw new Error(`No songs found for genre "${effectiveGenre}".`);
   }
 
-  await enrichCandidates(candidates, onProgress);
+  // ── Enrich + dedupe + noise filter (no LLM cost) ──
+  // enrichCandidates and fetchUploadDates operate on disjoint subsets:
+  // the former sets videoId on candidates that lack one; the latter reads
+  // videoId on candidates that already have one. They can run concurrently.
+  await Promise.all([
+    enrichCandidates(candidates, onProgress),
+    fetchUploadDates(candidates, { onProgress }),
+  ]);
+  candidates = applyNoiseFilter(candidates, "genre");
   candidates = dedupeAgainstLibrary(candidates);
-
   if (candidates.length === 0) {
-    return [];
+    return { tracks: [] };
   }
 
+  // ── Score (manual ranking) ──
   onProgress({ stage: "scoring", message: "Scoring and ranking candidates" });
   const ranked = rankCandidates(candidates);
-  const diverse = applyDiversityCap(ranked);
-  const selected = diverse.slice(0, limit);
 
-  return selected;
+  // ── Cap to top 100 by hitScore before LLM classifier ──
+  const LLM_INPUT_CAP = 100;
+  const llmInput = ranked.slice(0, LLM_INPUT_CAP);
+
+  // ── Hook 2: LLM keep/reject classifier ──
+  let kept: Track[] = llmInput;
+  if (intent) {
+    onProgress({
+      stage: "llm-reranking",
+      message: `Classifying ${llmInput.length} candidates`,
+    });
+    const result = await rerankCandidatesSafe({
+      mode: "genre",
+      intent,
+      candidates: llmInput.map<RerankCandidate>((c) => ({
+        id: c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`,
+        title: c.title,
+        artist: c.artist,
+        channel: c.channel,
+        durationSec: c.duration,
+      })),
+      jobId: opts.jobId,
+    });
+
+    if (result.ok) {
+      const keepIds = new Set(result.kept.map((d) => d.id));
+      const idOf = (c: Track) =>
+        c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`;
+      // Survivors keep their hitScore order — manual rank is the final ranker.
+      kept = llmInput.filter((c) => keepIds.has(idOf(c)));
+      onProgress({
+        stage: "llm-reranked",
+        message: "Classification complete",
+        rerankSummary: {
+          kept: result.kept.length,
+          dropped: result.dropped.length,
+          rejectCategories: summarizeRejectCategories(result.dropped),
+        },
+      });
+    } else {
+      onProgress({
+        stage: "llm-degraded",
+        degradeStep: "rerank",
+        message: result.reason,
+      });
+      // Degrade: trust manual rank only over the same top-100 pool the
+      // happy path would have seen. Keeps results consistent across
+      // LLM-up and LLM-down states.
+      kept = llmInput;
+    }
+  }
+
+  // ── Diversity cap + slice to N ──
+  const diverse = applyDiversityCap(kept);
+  const selected = diverse.slice(0, limit);
+  let note: string | undefined;
+  if (intent && selected.length < limit) {
+    note = `Only ${selected.length} high-confidence ${intent.displayName} tracks found — try a broader query or lower the count.`;
+  }
+  return { tracks: selected, note };
 }
 
 export async function rankArtist(
   artist: string,
   opts: RankOptions = {},
-): Promise<Track[]> {
+): Promise<RankResult> {
   ensureDirs();
   const onProgress = opts.onProgress ?? noop;
   const limit = opts.limit ?? 5;
 
-  onProgress({
-    stage: "scraping-spotify",
-    message: `Collecting top songs for "${artist}"`,
+  onProgress({ stage: "understanding-query", message: "Understanding query" });
+  const understood = await understandQuerySafe({
+    mode: "artist",
+    input: artist,
+    jobId: opts.jobId,
   });
-
-  let candidates = await collectArtistCandidates(artist);
-  if (candidates.length === 0) {
-    throw new Error(`No songs found for artist "${artist}".`);
+  if (!understood.ok && understood.reason === "rejected") {
+    throw new Error(understood.message);
+  }
+  const intent =
+    understood.ok && understood.data.mode === "artist" ? understood.data : null;
+  const effectiveArtist = intent?.canonicalArtist ?? artist;
+  if (!understood.ok) {
+    onProgress({
+      stage: "llm-degraded",
+      degradeStep: "understand",
+      message: understood.message,
+    });
   }
 
+  onProgress({
+    stage: "scraping-spotify",
+    message: `Collecting top songs for "${effectiveArtist}"`,
+  });
+  let candidates = await collectArtistCandidates(effectiveArtist);
+  if (candidates.length === 0) {
+    throw new Error(`No songs found for artist "${effectiveArtist}".`);
+  }
+
+  await fetchUploadDates(candidates, { onProgress });
+  candidates = applyNoiseFilter(candidates, "artist");
   candidates = dedupeAgainstLibrary(candidates);
   if (candidates.length === 0) {
-    return [];
+    return { tracks: [] };
   }
 
   onProgress({ stage: "scoring", message: "Scoring and ranking" });
-  // No diversity cap for single-artist flows (matches CLI).
   const ranked = rankCandidates(candidates);
-  const selected = ranked.slice(0, limit);
 
-  return selected;
+  const LLM_INPUT_CAP = 100;
+  const llmInput = ranked.slice(0, LLM_INPUT_CAP);
+
+  let kept: Track[] = llmInput;
+  if (intent) {
+    onProgress({
+      stage: "llm-reranking",
+      message: `Classifying ${llmInput.length} candidates`,
+    });
+    const result = await rerankCandidatesSafe({
+      mode: "artist",
+      intent,
+      candidates: llmInput.map<RerankCandidate>((c) => ({
+        id: c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`,
+        title: c.title,
+        artist: c.artist,
+        channel: c.channel,
+        durationSec: c.duration,
+      })),
+      jobId: opts.jobId,
+    });
+
+    if (result.ok) {
+      const keepIds = new Set(result.kept.map((d) => d.id));
+      const idOf = (c: Track) =>
+        c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`;
+      kept = llmInput.filter((c) => keepIds.has(idOf(c)));
+      onProgress({
+        stage: "llm-reranked",
+        message: "Classification complete",
+        rerankSummary: {
+          kept: result.kept.length,
+          dropped: result.dropped.length,
+          rejectCategories: summarizeRejectCategories(result.dropped),
+        },
+      });
+    } else {
+      onProgress({
+        stage: "llm-degraded",
+        degradeStep: "rerank",
+        message: result.reason,
+      });
+      kept = llmInput;
+    }
+  }
+
+  const selected = kept.slice(0, limit);
+  let note: string | undefined;
+  if (intent && selected.length < limit) {
+    note = `Only ${selected.length} high-confidence tracks found for ${intent.canonicalArtist}.`;
+  }
+  return { tracks: selected, note };
 }
 
 export async function rankSong(
-  query: string,
+  input: { title: string; artist: string },
   opts: RankOptions = {},
-): Promise<Track[]> {
+): Promise<RankResult> {
   ensureDirs();
   const onProgress = opts.onProgress ?? noop;
   const limit = opts.limit ?? 5;
 
+  onProgress({ stage: "understanding-query", message: "Understanding query" });
+  const understood = await understandQuerySafe({
+    mode: "song",
+    input,
+    jobId: opts.jobId,
+  });
+  if (!understood.ok && understood.reason === "rejected") {
+    throw new Error(understood.message);
+  }
+  const intent =
+    understood.ok && understood.data.mode === "song" ? understood.data : null;
+  const canonicalTitle = intent?.canonicalTitle ?? input.title;
+  const canonicalArtist = intent?.canonicalArtist ?? input.artist;
+
+  if (!understood.ok) {
+    onProgress({
+      stage: "llm-degraded",
+      degradeStep: "understand",
+      message: understood.message,
+    });
+  }
+
+  const query = `${canonicalArtist} ${canonicalTitle} official audio`;
   onProgress({
     stage: "scraping-spotify",
-    message: `Searching for "${query}"`,
+    message: `Searching for "${canonicalArtist} - ${canonicalTitle}"`,
   });
 
   const results = await searchYouTube(query, Math.max(5, limit));
@@ -295,24 +493,29 @@ export async function rankSong(
   });
 
   if (valid.length === 0) {
-    throw new Error(`No results found for "${query}".`);
+    throw new Error(`No results found for "${canonicalArtist} - ${canonicalTitle}".`);
   }
 
-  // Sort by views (most popular match first) — matches CLI runSong().
-  valid.sort((a, b) => b.views - a.views);
+  const filtered = applyNoiseFilter(
+    valid.map((r) => ({
+      videoId: r.videoId,
+      title: r.title,
+      artist: r.channel || canonicalArtist,
+      duration: r.duration,
+      views: r.views,
+      uploadDate: r.uploadDate ?? undefined,
+      videoUrl: r.url,
+      source: "youtube",
+    })),
+    "song",
+  );
+  if (filtered.length === 0) {
+    throw new Error(`No non-noise results for "${canonicalArtist} - ${canonicalTitle}".`);
+  }
+  filtered.sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
+  const tracks: Track[] = filtered.slice(0, limit);
 
-  const tracks: Track[] = valid.slice(0, limit).map((r) => ({
-    videoId: r.videoId,
-    title: r.title,
-    artist: r.channel || "Unknown",
-    duration: r.duration,
-    views: r.views,
-    uploadDate: r.uploadDate ?? undefined,
-    videoUrl: r.url,
-    source: "youtube",
-  }));
-
-  return tracks;
+  return { tracks };
 }
 
 // ── Download entry points ──
