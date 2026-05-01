@@ -13,7 +13,6 @@ export interface RerankArgs {
   mode: "genre" | "artist";
   intent: UnderstoodGenre | UnderstoodArtist;
   candidates: RerankCandidate[];
-  limit: number;
   jobId?: string;
 }
 
@@ -38,7 +37,6 @@ export async function rerankCandidatesSafe(
   const userPrompt = JSON.stringify({
     mode: args.mode,
     intent: args.intent,
-    limit: args.limit,
     candidates: args.candidates,
   });
 
@@ -55,10 +53,8 @@ export async function rerankCandidatesSafe(
       mode: args.mode,
     });
 
-    // Validate id-integrity: every decision id must match an input id.
     const validIds = new Set(args.candidates.map((c) => c.id));
     const clean = data.results.filter((r) => validIds.has(r.id));
-
     const kept = clean.filter((r) => r.keep);
     const dropped = clean.filter((r) => !r.keep);
     return { ok: true, kept, dropped };

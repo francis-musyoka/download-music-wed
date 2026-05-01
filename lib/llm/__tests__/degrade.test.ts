@@ -36,7 +36,6 @@ test("rerankCandidatesSafe returns degrade when LLM disabled", async () => {
       searchTerms: [],
     },
     candidates: [{ id: "v1", title: "Tyrant", artist: "Masicka" }],
-    limit: 10,
   });
   assert.equal(res.ok, false);
 });
@@ -54,7 +53,6 @@ test("rerankCandidatesSafe returns empty ok when given empty candidates", async 
       searchTerms: [],
     },
     candidates: [],
-    limit: 10,
   });
   assert.equal(res.ok, true);
   if (res.ok) {
