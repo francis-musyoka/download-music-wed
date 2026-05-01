@@ -53,20 +53,32 @@ test("artist-string filter requires ≥3 separators AND an underscore (conservat
   assert.equal(threeSepWithUnderscore.length, 0);
 });
 
-test("drops genre track exceeding 360s", () => {
-  const out = applyNoiseFilter([track({ title: "Tobetsa", artist: "Myztro", duration: 391 })], "genre");
+test("drops genre track exceeding 480s (8 min cutoff)", () => {
+  const out = applyNoiseFilter([track({ title: "Tobetsa", artist: "Myztro", duration: 600 })], "genre");
   assert.equal(out.length, 0);
 });
 
-test("keeps artist track exceeding 360s only when mode=song", () => {
-  const row = track({ title: "Long Jam", artist: "Some Band", duration: 480 });
+test("drops genre/artist track shorter than 120s (snippet/intro)", () => {
+  const row = track({ title: "Short Snippet", artist: "Some Band", duration: 60 });
+  assert.equal(applyNoiseFilter([row], "genre").length, 0);
+  assert.equal(applyNoiseFilter([row], "artist").length, 0);
+  // mode=song bypasses duration bounds
+  assert.equal(applyNoiseFilter([row], "song").length, 1);
+});
+
+test("keeps long track only when mode=song", () => {
+  const row = track({ title: "Long Jam", artist: "Some Band", duration: 600 });
   assert.equal(applyNoiseFilter([row], "song").length, 1);
   assert.equal(applyNoiseFilter([row], "artist").length, 0);
 });
 
-test("does not match 'mix' alone — word boundary prevents false positive", () => {
+test("matches standalone 'mix' (wider filter — relies on LLM rerank for context)", () => {
+  // The wider NOISE_TITLE_RE intentionally matches \bmix\b on its own. Real
+  // titles containing the word "mix" (e.g. "Your Mix of My Heart") will be
+  // dropped here; the LLM rerank stage is responsible for recovering any
+  // false positives. This test pins the conservative-vs-wide tradeoff.
   const out = applyNoiseFilter([track({ title: "Your Mix of My Heart", artist: "Any", duration: 200 })], "genre");
-  assert.equal(out.length, 1);
+  assert.equal(out.length, 0);
 });
 
 test("drops karaoke", () => {
