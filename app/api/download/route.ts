@@ -47,7 +47,7 @@ function sanitizeClientError(raw: string): string {
 
 export async function POST(req: Request) {
   const ip = clientIp(req);
-  const retry = checkRate(ip);
+  const retry = checkRate(ip, false);
   if (retry !== null) {
     return NextResponse.json(
       { error: "Too many requests" },

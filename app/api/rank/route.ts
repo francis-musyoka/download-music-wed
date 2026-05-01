@@ -6,7 +6,13 @@ import {
   type RankOptions,
 } from "@/lib/pipeline/orchestrator";
 import { completeJob, createJob, emit, failJob } from "@/lib/jobs";
-import { checkRate, clientIp, releaseSlot, reserveSlot } from "@/lib/limits";
+import {
+  checkRate,
+  checkDaily,
+  clientIp,
+  releaseSlot,
+  reserveSlot,
+} from "@/lib/limits";
 import { getOrSetSession } from "@/lib/session";
 import type { Mode, Track } from "@/lib/types";
 
@@ -43,13 +49,8 @@ function validateSongInput(raw: unknown): { title: string; artist: string } | nu
 
 export async function POST(req: Request) {
   const ip = clientIp(req);
-  const retry = checkRate(ip);
-  if (retry !== null) {
-    return NextResponse.json(
-      { error: "Too many requests" },
-      { status: 429, headers: { "Retry-After": String(retry) } },
-    );
-  }
+  const res = NextResponse.json({ jobId: "" });
+  const sessionId = getOrSetSession(req, res);
 
   let body: RankBody;
   try {
@@ -57,8 +58,38 @@ export async function POST(req: Request) {
   } catch {
     return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
   }
-
   const { mode, input, limit } = body;
+
+  const heavy = mode === "genre" || mode === "artist";
+
+  // Helper: preserve the Set-Cookie added by getOrSetSession when returning
+  // an early 429. Without this, first-time users who hit the rate limit on
+  // their very first request never receive a session cookie.
+  const errorResponse = (status: number, errorBody: object, retryAfter: number) => {
+    const headers = new Headers(res.headers);
+    headers.set("Retry-After", String(retryAfter));
+    headers.set("Content-Type", "application/json");
+    return new NextResponse(JSON.stringify(errorBody), { status, headers });
+  };
+
+  const retry = checkRate(ip, heavy);
+  if (retry !== null) {
+    return errorResponse(429, { error: "Too many requests" }, retry);
+  }
+
+  if (heavy) {
+    const dayRetry = checkDaily(sessionId);
+    if (dayRetry !== null) {
+      return errorResponse(
+        429,
+        {
+          error: "Daily search limit reached. Try again tomorrow.",
+          retryAfter: dayRetry,
+        },
+        dayRetry,
+      );
+    }
+  }
 
   if (!mode) {
     return NextResponse.json(
@@ -120,8 +151,6 @@ export async function POST(req: Request) {
   // leaks until process restart and concurrency is permanently reduced.
   let job: ReturnType<typeof createJob> | null = null;
   try {
-    const res = NextResponse.json({ jobId: "" });
-    const sessionId = getOrSetSession(req, res);
     const jobInputStr =
       songInput !== null
         ? `${songInput.title} — ${songInput.artist}`
