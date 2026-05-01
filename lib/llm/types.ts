@@ -47,9 +47,7 @@ export type RejectCategory =
 export interface RerankDecision {
   id: string;
   keep: boolean;
-  llmScore: number;
   rejectCategory?: RejectCategory;
-  reason: string;
 }
 
 export interface RerankResult {
@@ -60,7 +58,6 @@ export interface RerankCandidate {
   id: string;
   title: string;
   artist: string;
+  channel?: string;
   durationSec?: number;
-  views?: number;
-  source?: string;
 }

@@ -10,7 +10,7 @@ export const UnderstoodGenreSchema = z.object({
   knownGenre: z.boolean(),
   spellCorrected: z.boolean(),
   originalInput: z.string(),
-  searchTerms: z.array(z.string().min(1)).min(0).max(6),
+  searchTerms: z.array(z.string().min(1).max(60)).min(0).max(8),
   rejectReason: z.string().optional(),
 });
 
@@ -45,9 +45,7 @@ export const RejectCategorySchema = z.enum([
 export const RerankDecisionSchema = z.object({
   id: z.string().min(1),
   keep: z.boolean(),
-  llmScore: z.number().min(0).max(100),
   rejectCategory: RejectCategorySchema.optional(),
-  reason: z.string(),
 });
 
 export const RerankResultSchema = z.object({
