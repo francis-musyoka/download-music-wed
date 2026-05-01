@@ -269,8 +269,13 @@ export async function rankGenre(
   }
 
   // ── Enrich + dedupe + noise filter (no LLM cost) ──
-  await enrichCandidates(candidates, onProgress);
-  await fetchUploadDates(candidates, { onProgress });
+  // enrichCandidates and fetchUploadDates operate on disjoint subsets:
+  // the former sets videoId on candidates that lack one; the latter reads
+  // videoId on candidates that already have one. They can run concurrently.
+  await Promise.all([
+    enrichCandidates(candidates, onProgress),
+    fetchUploadDates(candidates, { onProgress }),
+  ]);
   candidates = applyNoiseFilter(candidates, "genre");
   candidates = dedupeAgainstLibrary(candidates);
   if (candidates.length === 0) {
