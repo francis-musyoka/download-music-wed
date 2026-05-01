@@ -108,6 +108,8 @@ export default function Page() {
   const [busy, setBusy] = useState(false);
   const [status, setStatus] = useState<StatusLine[]>([]);
   const [tracks, setTracks] = useState<Row[]>([]);
+  const [note, setNote] = useState<string | undefined>(undefined);
+  const [quota, setQuota] = useState<{ used: number; max: number; resetsAt: number } | undefined>(undefined);
   const [inputLabel, setInputLabel] = useState("");
   const [dock, setDock] = useState<DockItem[]>([]);
   const [playingKey, setPlayingKey] = useState<string | null>(null);
@@ -119,6 +121,19 @@ export default function Page() {
   // re-submits can't stack open EventSource connections (Chrome caps at 6
   // per origin). Also torn down on unmount for HMR / Fast Refresh safety.
   const sseRef = useRef<(() => void) | null>(null);
+
+  const refreshQuota = useCallback(async () => {
+    try {
+      const r = await fetch("/api/quota");
+      if (r.ok) setQuota(await r.json());
+    } catch {
+      // Silent: quota indicator is informational, not critical.
+    }
+  }, []);
+
+  useEffect(() => {
+    refreshQuota();
+  }, [refreshQuota]);
 
   useEffect(() => {
     return () => {
@@ -345,6 +360,7 @@ export default function Page() {
       }
 
       setTracks([]);
+      setNote(undefined);
       setStatus([]);
       const labelInput =
         typeof p.input === "string" ? p.input : `${p.input.title} — ${p.input.artist}`;
@@ -368,6 +384,7 @@ export default function Page() {
         }
         const data = (await res.json()) as { jobId: string };
         jobId = data.jobId;
+        refreshQuota();
       } catch (err) {
         setBusy(false);
         toast({
@@ -382,9 +399,13 @@ export default function Page() {
       sseRef.current = subscribeJob(jobId, {
         onProgress: (ev) => {
           pushStatus(ev);
+          if (ev.stage === "complete" && ev.note) {
+            setNote(ev.note);
+          }
         },
         onDone: (done) => {
           setBusy(false);
+          refreshQuota();
           if (done.stage === "complete" && Array.isArray(done.result)) {
             setTracks(done.result as Track[]);
           } else if (done.stage === "failed") {
@@ -401,7 +422,7 @@ export default function Page() {
         },
       });
     },
-    [startDownload, pushStatus],
+    [startDownload, pushStatus, refreshQuota],
   );
 
   const playTrack = useCallback(
@@ -634,10 +655,11 @@ export default function Page() {
       <Hero onHowClick={openHow} />
       <ValueProps />
       <HowToDownload />
-      <AppPanel onSubmit={submit} statusLines={status} busy={busy} />
+      <AppPanel onSubmit={submit} statusLines={status} busy={busy} quota={quota} />
       <ResultsList
         tracks={tracks}
         inputLabel={inputLabel}
+        note={note}
         playingKey={playingKey}
         onPlay={playTrack}
         onDownloadOne={downloadOne}
