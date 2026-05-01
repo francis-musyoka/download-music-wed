@@ -31,7 +31,15 @@ export class UnderstandCache<V> {
   }
 }
 
-export const understandCache = new UnderstandCache<UnderstoodQuery>(100);
+// Hoist onto globalThis so the cache survives Next.js dev HMR module
+// re-evaluation. Same pattern used by lib/jobs.ts and the preview cache.
+type GlobalWithUnderstandCache = typeof globalThis & {
+  __downloadMusicUnderstandCache?: UnderstandCache<UnderstoodQuery>;
+};
+const g = globalThis as GlobalWithUnderstandCache;
+export const understandCache: UnderstandCache<UnderstoodQuery> =
+  g.__downloadMusicUnderstandCache ??
+  (g.__downloadMusicUnderstandCache = new UnderstandCache<UnderstoodQuery>(100));
 
 export function normalizeCacheKey(
   mode: "genre" | "artist" | "song",
