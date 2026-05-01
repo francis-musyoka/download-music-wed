@@ -29,6 +29,7 @@ export type JobStage =
   | "understanding-query"
   | "scraping-spotify"
   | "enriching-youtube"
+  | "enriching-dates"
   | "scoring"
   | "llm-reranking"
   | "llm-reranked"
