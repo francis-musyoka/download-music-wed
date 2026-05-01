@@ -144,6 +144,7 @@ async function scrapeYTMusicFallback(
     .map((r) => ({
       title: r.title,
       artist: r.channel || "Unknown",
+      channel: r.channel,
       playlistCount: 1,
       bestPosition: 50,
       views: r.views,
@@ -226,22 +227,19 @@ export async function rankGenre(
   const onProgress = opts.onProgress ?? noop;
   const limit = opts.limit ?? DEFAULT_LIMIT;
 
-  // ── Hook 1: Query understanding ────────────────────────────────
+  // ── Hook 1: Query understanding ──
   onProgress({ stage: "understanding-query", message: "Understanding query" });
   const understood = await understandQuerySafe({
     mode: "genre",
     input: genre,
     jobId: opts.jobId,
   });
-  console.log('UNDERSTAND genre::>>>>', understood)
   if (!understood.ok && understood.reason === "rejected") {
     throw new Error(understood.message);
   }
   const intent =
     understood.ok && understood.data.mode === "genre" ? understood.data : null;
   const effectiveGenre = intent?.canonicalGenre ?? genre;
-  const extraSearchTerms = intent?.searchTerms ?? [];
-
   if (!understood.ok) {
     onProgress({
       stage: "llm-degraded",
@@ -250,110 +248,93 @@ export async function rankGenre(
     });
   }
 
-  // ── Existing pipeline ──────────────────────────────────────────
+  // ── Scrape ──
   onProgress({
     stage: "scraping-spotify",
     message: `Collecting candidates for "${effectiveGenre}"`,
   });
-
-  console.log("LLM SEARCH TERMS →→→→", {
-    effectiveGenre,
-    canonicalGenre: intent?.canonicalGenre,
-    searchTerms: intent?.searchTerms ?? [],
-    fromShortcircuit: intent?.knownGenre === true,
-  });
   let candidates = await collectCandidates(effectiveGenre, {
     extraSearchTerms: intent?.searchTerms ?? [],
   });
-  console.log("SCRAPED CANDIDATES GERNE SPOTIFY:::>>>>", candidates)
   if (candidates.length === 0) {
     onProgress({
       stage: "scraping-spotify",
       message: "Spotify returned zero candidates — falling back to YouTube",
     });
-    const query = extraSearchTerms[0] ?? effectiveGenre;
+    const query = intent?.searchTerms?.[0] ?? effectiveGenre;
     candidates = await scrapeYTMusicFallback(query, limit * 3);
-    console.log("SCRAPED CANDIDATES GENRE FROM YT MUSIC", candidates)
   }
-
   if (candidates.length === 0) {
     throw new Error(`No songs found for genre "${effectiveGenre}".`);
   }
 
+  // ── Enrich + dedupe + noise filter (no LLM cost) ──
   await enrichCandidates(candidates, onProgress);
   await fetchUploadDates(candidates, { onProgress });
   candidates = applyNoiseFilter(candidates, "genre");
-  if (candidates.length === 0) {
-    throw new Error(`No non-noise candidates remained for "${effectiveGenre}".`);
-  }
   candidates = dedupeAgainstLibrary(candidates);
-
   if (candidates.length === 0) {
     return { tracks: [] };
   }
 
+  // ── Score (manual ranking) ──
   onProgress({ stage: "scoring", message: "Scoring and ranking candidates" });
   const ranked = rankCandidates(candidates);
 
-  console.log("RANKED CANDIDATE FROM rankCandidates ::>>>> ", ranked)
+  // ── Cap to top 100 by hitScore before LLM classifier ──
+  const LLM_INPUT_CAP = 100;
+  const llmInput = ranked.slice(0, LLM_INPUT_CAP);
 
-  // ── Hook 2: LLM rerank ─────────────────────────────────────────
-  const topN = ranked.slice(0, 25);
-  let finalOrder: Track[] = ranked;
-  let note: string | undefined;
-
+  // ── Hook 2: LLM keep/reject classifier ──
+  let kept: Track[] = ranked;
   if (intent) {
-    onProgress({ stage: "llm-reranking", message: "AI reranking candidates" });
-    const rerank = await rerankCandidatesSafe({
+    onProgress({
+      stage: "llm-reranking",
+      message: `Classifying ${llmInput.length} candidates`,
+    });
+    const result = await rerankCandidatesSafe({
       mode: "genre",
       intent,
-      limit,
-      candidates: topN.map<RerankCandidate>((c) => ({
-        id: (c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`),
+      candidates: llmInput.map<RerankCandidate>((c) => ({
+        id: c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`,
         title: c.title,
         artist: c.artist,
+        channel: c.channel,
         durationSec: c.duration,
-        views: c.views,
-        source: c.source,
       })),
       jobId: opts.jobId,
     });
 
-
-    if (rerank.ok) {
-      const byId = new Map(
-        topN.map((c) => [(c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`), c]),
-      );
-      const kept = rerank.kept
-        .sort((a, b) => b.llmScore - a.llmScore)
-        .map((d) => byId.get(d.id))
-        .filter((t): t is Track => t !== undefined);
-      console.log("RERANK FROM LLM BEST", kept)
+    if (result.ok) {
+      const keepIds = new Set(result.kept.map((d) => d.id));
+      const idOf = (c: Track) =>
+        c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`;
+      // Survivors keep their hitScore order — manual rank is the final ranker.
+      kept = llmInput.filter((c) => keepIds.has(idOf(c)));
       onProgress({
         stage: "llm-reranked",
-        message: "AI rerank complete",
+        message: "Classification complete",
         rerankSummary: {
-          kept: rerank.kept.length,
-          dropped: rerank.dropped.length,
-          rejectCategories: summarizeRejectCategories(rerank.dropped),
+          kept: result.kept.length,
+          dropped: result.dropped.length,
+          rejectCategories: summarizeRejectCategories(result.dropped),
         },
       });
-
-      finalOrder = kept.length > 0 ? kept : ranked;
     } else {
       onProgress({
         stage: "llm-degraded",
         degradeStep: "rerank",
-        message: rerank.reason,
+        message: result.reason,
       });
+      // Degrade: trust manual rank only, plus the regex noise filter.
+      kept = ranked;
     }
   }
-  console.log("FINAL ORDER>>>>>", finalOrder)
-  const diverse = applyDiversityCap(finalOrder);
+
+  // ── Diversity cap + slice to N ──
+  const diverse = applyDiversityCap(kept);
   const selected = diverse.slice(0, limit);
-  // Note fires when final selected count is below requested — covers BOTH
-  // "LLM rejected too many" and "diversity cap trimmed a top-heavy artist".
-  // User message is the same either way.
+  let note: string | undefined;
   if (intent && selected.length < limit) {
     note = `Only ${selected.length} high-confidence ${intent.displayName} tracks found — try a broader query or lower the count.`;
   }
@@ -380,7 +361,6 @@ export async function rankArtist(
   const intent =
     understood.ok && understood.data.mode === "artist" ? understood.data : null;
   const effectiveArtist = intent?.canonicalArtist ?? artist;
-
   if (!understood.ok) {
     onProgress({
       stage: "llm-degraded",
@@ -393,7 +373,6 @@ export async function rankArtist(
     stage: "scraping-spotify",
     message: `Collecting top songs for "${effectiveArtist}"`,
   });
-
   let candidates = await collectArtistCandidates(effectiveArtist);
   if (candidates.length === 0) {
     throw new Error(`No songs found for artist "${effectiveArtist}".`);
@@ -401,9 +380,6 @@ export async function rankArtist(
 
   await fetchUploadDates(candidates, { onProgress });
   candidates = applyNoiseFilter(candidates, "artist");
-  if (candidates.length === 0) {
-    throw new Error(`No non-noise candidates remained for artist "${effectiveArtist}".`);
-  }
   candidates = dedupeAgainstLibrary(candidates);
   if (candidates.length === 0) {
     return { tracks: [] };
@@ -412,57 +388,54 @@ export async function rankArtist(
   onProgress({ stage: "scoring", message: "Scoring and ranking" });
   const ranked = rankCandidates(candidates);
 
-  const topN = ranked.slice(0, 20);
-  let finalOrder: Track[] = ranked;
-  let note: string | undefined;
+  const LLM_INPUT_CAP = 100;
+  const llmInput = ranked.slice(0, LLM_INPUT_CAP);
 
+  let kept: Track[] = ranked;
   if (intent) {
-    onProgress({ stage: "llm-reranking", message: "AI reranking candidates" });
-    const rerank = await rerankCandidatesSafe({
+    onProgress({
+      stage: "llm-reranking",
+      message: `Classifying ${llmInput.length} candidates`,
+    });
+    const result = await rerankCandidatesSafe({
       mode: "artist",
       intent,
-      limit,
-      candidates: topN.map<RerankCandidate>((c) => ({
-        id: (c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`),
+      candidates: llmInput.map<RerankCandidate>((c) => ({
+        id: c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`,
         title: c.title,
         artist: c.artist,
+        channel: c.channel,
         durationSec: c.duration,
-        views: c.views,
-        source: c.source,
       })),
       jobId: opts.jobId,
     });
 
-    if (rerank.ok) {
-      const byId = new Map(
-        topN.map((c) => [(c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`), c]),
-      );
-      const kept = rerank.kept
-        .sort((a, b) => b.llmScore - a.llmScore)
-        .map((d) => byId.get(d.id))
-        .filter((t): t is Track => t !== undefined);
-
+    if (result.ok) {
+      const keepIds = new Set(result.kept.map((d) => d.id));
+      const idOf = (c: Track) =>
+        c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`;
+      kept = llmInput.filter((c) => keepIds.has(idOf(c)));
       onProgress({
         stage: "llm-reranked",
-        message: "AI rerank complete",
+        message: "Classification complete",
         rerankSummary: {
-          kept: rerank.kept.length,
-          dropped: rerank.dropped.length,
-          rejectCategories: summarizeRejectCategories(rerank.dropped),
+          kept: result.kept.length,
+          dropped: result.dropped.length,
+          rejectCategories: summarizeRejectCategories(result.dropped),
         },
       });
-
-      finalOrder = kept.length > 0 ? kept : ranked;
     } else {
       onProgress({
         stage: "llm-degraded",
         degradeStep: "rerank",
-        message: rerank.reason,
+        message: result.reason,
       });
+      kept = ranked;
     }
   }
 
-  const selected = finalOrder.slice(0, limit);
+  const selected = kept.slice(0, limit);
+  let note: string | undefined;
   if (intent && selected.length < limit) {
     note = `Only ${selected.length} high-confidence tracks found for ${intent.canonicalArtist}.`;
   }
