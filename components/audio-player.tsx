@@ -70,6 +70,13 @@ export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
       onPause?.();
     };
     const onEnded = () => {
+      // Defensive: detach the source so the element can't auto-continue.
+      // YouTube Music "Topic" channel URLs sometimes resolve to a manifest
+      // that chains the artist's other tracks — without this teardown, the
+      // browser follows the chain when the first track ends.
+      el.pause();
+      el.removeAttribute("src");
+      el.load();
       setPlaying(false);
       trackKeyRef.current = null;
       setLabel(null);

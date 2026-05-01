@@ -112,11 +112,15 @@ export async function understandQuerySafe<M extends keyof UnderstandInputs>(args
         args.jobId,
       );
     }
-    // Cache success AND hard-reject results — both are stable.
-    understandCache.set(key, data);
+    // Cache successful resolutions only. Rejections are NOT cached — prompt
+    // iteration changes what the model classifies as a valid artist/genre,
+    // and a stale rejection blocks the user from a now-acceptable input
+    // until the process restarts. Re-deriving a rejection on the next call
+    // costs ~$0.0002, which is negligible vs the UX cost of stale rejects.
     if (data.rejectReason) {
       return { ok: false, reason: "rejected", message: data.rejectReason };
     }
+    understandCache.set(key, data);
     return { ok: true, data };
   } catch (err) {
     // Do NOT cache transient failures.

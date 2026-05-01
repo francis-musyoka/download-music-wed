@@ -67,7 +67,11 @@ function resolveStreamUrl(videoId: string): Promise<ResolveResult> {
       "yt-dlp",
       [
         "-f",
-        "bestaudio[ext=m4a]/bestaudio/best",
+        // Audio-only formats only — no fallback to `best`. A combined
+        // audio+video format from `best` can resolve to a manifest URL
+        // that chains additional tracks (especially on YouTube Music Topic
+        // channels). 502 is preferable to playing the wrong content.
+        "bestaudio[ext=m4a]/bestaudio",
         "-g",
         `https://www.youtube.com/watch?v=${videoId}`,
         "--no-warnings",

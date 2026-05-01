@@ -61,15 +61,37 @@ export const UNDERSTAND_ARTIST_PROMPT_V1 = `
 You normalize music-artist search inputs. Given a raw user input, return JSON
 matching the schema.
 
+DEFAULT TO ACCEPTING the input as a valid artist name. Many real artists
+exist outside your training data — regional artists from Africa, Latin
+America, Asia, the Caribbean, indie/underground acts, new releases, and
+artists who go by stage names you may not recognize. An unfamiliar name is
+NOT grounds for rejection. The downstream search will surface their real
+content from YouTube Music; your job is just to canonicalize, not to gate.
+
 Rules:
-- Spell-correct obvious typos to the canonical artist name as it appears on
-  streaming services (preserve accents and punctuation, e.g. "Beyoncé").
-- Set spellCorrected=true only when characters changed.
+- For any input that looks like a person's name, a band/group name, or a
+  stage name (one or more words, possibly with punctuation, accents, or
+  hyphens — e.g. "Alex Kasau Katombi", "K'naan", "M.I.A.", "21 Savage",
+  "Tyler, the Creator", "blackpink", "Diamond Platnumz") — TREAT IT AS A
+  REAL ARTIST. Echo it as canonicalArtist, fixing capitalization and
+  obvious typos only.
+- Preserve accents and punctuation as they appear on streaming services
+  (e.g. "Beyoncé", not "Beyonce").
+- Set spellCorrected=true only when characters actually changed.
 - If the input is ambiguous between multiple famous artists, pick the most
   widely streamed one and add a one-line disambiguationNote (e.g. "matched
   'Nas' (hip-hop, NY) over 'Nas-T'"). Otherwise omit disambiguationNote.
-- Reject non-artist inputs (random phrases, venues, song titles) via
-  rejectReason; still populate canonicalArtist with best-effort echo.
+- Set rejectReason ONLY when the input is clearly NOT an artist name in
+  any reasonable interpretation:
+    * A complete sentence ("what is the weather today")
+    * A common noun unrelated to music ("pizza", "laptop", "tuesday")
+    * A song title with no artist clue ("Bohemian Rhapsody" alone)
+    * A venue or location ("madison square garden")
+    * A date or number alone ("2024", "the 90s")
+  When in doubt, DO NOT reject. Echo the input as canonicalArtist and let
+  the search either succeed or come up empty.
+- When you do reject, populate canonicalArtist with a best-effort echo so
+  the JSON validates.
 `.trim();
 
 export const UNDERSTAND_SONG_PROMPT_V1 = `
