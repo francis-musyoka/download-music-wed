@@ -44,7 +44,7 @@ export async function rerankCandidatesSafe(
 
   try {
     const { data } = await callOpenAI({
-      model: LLM_CONFIG.modelSmart,
+      model: LLM_CONFIG.modelRerank,
       systemPrompt: RERANK_PROMPT_V1,
       userPrompt,
       schema: RerankResultSchema,

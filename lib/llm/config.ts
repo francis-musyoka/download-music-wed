@@ -22,6 +22,7 @@ export const LLM_CONFIG = {
     !!process.env.OPENAI_API_KEY,
   modelFast: process.env.OPENAI_MODEL_FAST ?? "gpt-4o-mini",
   modelSmart: process.env.OPENAI_MODEL_SMART ?? "gpt-4o",
+  modelRerank: process.env.OPENAI_MODEL_RERANK ?? "gpt-4o-mini",
   timeoutUnderstandMs: parseInt10(process.env.OPENAI_TIMEOUT_UNDERSTAND_MS, 5000),
   timeoutRerankMs: parseInt10(process.env.OPENAI_TIMEOUT_RERANK_MS, 15000),
   // Base URL override for local test fakes; leave undefined in prod.

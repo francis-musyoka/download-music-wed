@@ -56,6 +56,7 @@ export interface CallMeta {
   latencyMs: number;
   inputTokens?: number;
   outputTokens?: number;
+  cachedTokens?: number;
   retries: number;
 }
 
@@ -87,7 +88,10 @@ function scrub<T>(v: T): T {
   return copy as T;
 }
 
-async function callOnce<T>(p: CallParams<T>): Promise<{ parsed: T; usage: { input?: number; output?: number } }> {
+async function callOnce<T>(p: CallParams<T>): Promise<{
+  parsed: T;
+  usage: { input?: number; output?: number; cached?: number };
+}> {
   const ac = new AbortController();
   const timer = setTimeout(() => ac.abort(), p.timeoutMs);
   try {
@@ -114,7 +118,11 @@ async function callOnce<T>(p: CallParams<T>): Promise<{ parsed: T; usage: { inpu
     const parsed = p.schema.parse(json);
     return {
       parsed,
-      usage: { input: resp.usage?.prompt_tokens, output: resp.usage?.completion_tokens },
+      usage: {
+        input: resp.usage?.prompt_tokens,
+        output: resp.usage?.completion_tokens,
+        cached: resp.usage?.prompt_tokens_details?.cached_tokens,
+      },
     };
   } finally {
     clearTimeout(timer);
@@ -138,6 +146,7 @@ export async function callOpenAI<T>(p: CallParams<T>): Promise<{ data: T; meta: 
           latencyMs,
           inputTokens: out.usage.input,
           outputTokens: out.usage.output,
+          cachedTokens: out.usage.cached,
           retries: attempt,
         }),
         "llm_call",
@@ -148,6 +157,7 @@ export async function callOpenAI<T>(p: CallParams<T>): Promise<{ data: T; meta: 
           latencyMs,
           inputTokens: out.usage.input,
           outputTokens: out.usage.output,
+          cachedTokens: out.usage.cached,
           retries: attempt,
         },
       };
