@@ -4,6 +4,7 @@ export interface Track {
   videoId?: string;
   title: string;
   artist: string;
+  channel?: string;
   duration?: number;
   views?: number;
   plays?: number;
