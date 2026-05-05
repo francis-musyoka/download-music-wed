@@ -8,10 +8,18 @@ export const dynamic = "force-dynamic";
 // yt-dlp signed googlevideo URLs are valid for ~6h. We expose a 4h TTL to the
 // client (conservative buffer) and require 30min of remaining life before
 // serving a cache hit so late consumers still get a playable URL.
-const TTL_MS = 4 * 60 * 60 * 1000;
-const SAFETY_MARGIN_MS = 30 * 60 * 1000;
-const YT_DLP_TIMEOUT_MS = 15_000;
-const MAX_PREVIEW_CACHE = 500;
+function intEnv(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) return fallback;
+  const n = Number.parseInt(raw, 10);
+  return Number.isFinite(n) && n > 0 ? n : fallback;
+}
+const TTL_MS = intEnv("PREVIEW_TTL_MS", 4 * 60 * 60 * 1000);
+const SAFETY_MARGIN_MS = intEnv("PREVIEW_SAFETY_MARGIN_MS", 30 * 60 * 1000);
+// Default 60s — VPS yt-dlp calls (cookies + EJS challenge solving) routinely
+// exceed the original 15s ceiling on cold cache. Raise via env if needed.
+const YT_DLP_TIMEOUT_MS = intEnv("YT_DLP_PREVIEW_TIMEOUT_MS", 60_000);
+const MAX_PREVIEW_CACHE = intEnv("PREVIEW_CACHE_MAX_ENTRIES", 500);
 
 // YouTube videoIds are always exactly 11 chars from [A-Za-z0-9_-].
 const VIDEO_ID_RE = /^[a-zA-Z0-9_-]{11}$/;
