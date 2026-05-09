@@ -35,3 +35,5 @@ e2e/
 .playwright-mcp
 .worktrees/
 .superpowers/
+
+TODO.md

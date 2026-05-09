@@ -156,6 +156,61 @@ async function scrapeYTMusicFallback(
     }));
 }
 
+/**
+ * yt-dlp fallback for artist mode when the Playwright YT-Music scrape returns
+ * zero candidates (typical on datacenter IPs that hit Google's EU consent wall).
+ * Loose channel-name match mirrors collectArtistCandidates in scrapers/spotify.js.
+ */
+async function searchArtistFallback(
+  artist: string,
+  count: number,
+): Promise<Track[]> {
+  const queries = [
+    `${artist} best songs`,
+    `${artist} top hits`,
+    `${artist} popular songs`,
+  ];
+  const artistLower = artist.toLowerCase();
+  const seen = new Map<string, Track>();
+
+  for (const query of queries) {
+    let results: YtSearchResult[];
+    try {
+      results = await searchYouTube(query, count);
+    } catch {
+      continue;
+    }
+    for (const r of results) {
+      if (r.duration > MAX_DURATION) continue;
+      if (r.duration > 0 && r.duration < MIN_DURATION) continue;
+      if (isMixOrCompilation(r.title)) continue;
+
+      const channelLower = (r.channel || "").toLowerCase();
+      const matches =
+        channelLower.includes(artistLower) ||
+        (channelLower !== "" && artistLower.includes(channelLower));
+      if (!matches) continue;
+
+      if (seen.has(r.videoId)) continue;
+      seen.set(r.videoId, {
+        videoId: r.videoId,
+        title: r.title,
+        artist: r.channel || artist,
+        channel: r.channel,
+        duration: r.duration,
+        views: r.views,
+        uploadDate: r.uploadDate ?? undefined,
+        videoUrl: r.url,
+        playlistCount: 1,
+        bestPosition: 50,
+        source: "youtube",
+      });
+    }
+  }
+
+  return Array.from(seen.values());
+}
+
 async function enrichCandidates(
   candidates: Track[],
   onProgress: OnProgress,
@@ -381,6 +436,16 @@ export async function rankArtist(
     message: `Collecting top songs for "${effectiveArtist}"`,
   });
   let candidates = await collectArtistCandidates(effectiveArtist);
+  if (candidates.length === 0) {
+    onProgress({
+      stage: "scraping-spotify",
+      message: "First crate came up empty — widening the search",
+    });
+    candidates = await searchArtistFallback(
+      effectiveArtist,
+      Math.max(20, limit * 4),
+    );
+  }
   if (candidates.length === 0) {
     throw new Error(`No songs found for artist "${effectiveArtist}".`);
   }

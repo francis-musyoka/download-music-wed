@@ -17,6 +17,7 @@ interface AudioPlayerProps {
   ref?: Ref<AudioHandle>;
   onPlay?: (key: string) => void;
   onPause?: () => void;
+  onError?: () => void;
 }
 
 function fmtTime(sec: number): string {
@@ -26,7 +27,7 @@ function fmtTime(sec: number): string {
   return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
+export function AudioPlayer({ ref, onPlay, onPause, onError }: AudioPlayerProps) {
   const audioRef = useRef<HTMLAudioElement>(null);
   const progressRef = useRef<HTMLDivElement>(null);
   // trackKey is read inside the <audio> event handler; a ref beats state here
@@ -84,19 +85,27 @@ export function AudioPlayer({ ref, onPlay, onPause }: AudioPlayerProps) {
     };
     const onTime = () => setCurrent(el.currentTime);
     const onMeta = () => setDuration(el.duration || 0);
+    const onErrorEv = () => {
+      // Fires when the browser can't load the source (network failure, decode
+      // error, ORB block, etc.). Surface to the parent so it can clear any
+      // "loading" state on the calling track row.
+      onError?.();
+    };
     el.addEventListener("play", onPlayEv);
     el.addEventListener("pause", onPauseEv);
     el.addEventListener("ended", onEnded);
     el.addEventListener("timeupdate", onTime);
     el.addEventListener("loadedmetadata", onMeta);
+    el.addEventListener("error", onErrorEv);
     return () => {
       el.removeEventListener("play", onPlayEv);
       el.removeEventListener("pause", onPauseEv);
       el.removeEventListener("ended", onEnded);
       el.removeEventListener("timeupdate", onTime);
       el.removeEventListener("loadedmetadata", onMeta);
+      el.removeEventListener("error", onErrorEv);
     };
-  }, [onPlay, onPause]);
+  }, [onPlay, onPause, onError]);
 
   const togglePlay = () => {
     const el = audioRef.current;

@@ -10,6 +10,8 @@ interface Props {
   inputLabel: string;
   note?: string;
   playingKey?: string | null;
+  loadingKey?: string | null;
+  downloadingKeys?: Set<string>;
   onPlay: (t: Row) => void;
   onDownloadOne: (t: Row) => void;
   onDownloadAll: () => void;
@@ -30,6 +32,8 @@ export function ResultsList({
   inputLabel,
   note,
   playingKey,
+  loadingKey,
+  downloadingKeys,
   onPlay,
   onDownloadOne,
   onDownloadAll,
@@ -110,6 +114,8 @@ export function ResultsList({
                 rank={i + 1}
                 track={t}
                 isPlaying={playingKey === k}
+                isLoading={loadingKey === k}
+                isDownloading={downloadingKeys?.has(k) ?? false}
                 onPlay={onPlay}
                 onDownload={onDownloadOne}
               />

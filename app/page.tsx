@@ -65,12 +65,17 @@ const previewCache = new Map<string, PreviewCacheEntry>();
 const PREVIEW_CLIENT_SAFETY_MS = 5 * 60 * 1000;
 
 async function resolvePreviewUrl(videoId: string): Promise<string | null> {
+  const proxyUrl = `/api/stream/${encodeURIComponent(videoId)}`;
   const now = Date.now();
   const cached = previewCache.get(videoId);
   if (cached && now < cached.expiresAtMs - PREVIEW_CLIENT_SAFETY_MS) {
-    return cached.streamUrl;
+    return proxyUrl;
   }
   try {
+    // We hit /api/preview first (cheap once warmed) so we know upfront
+    // whether yt-dlp can resolve the video — if it can't, we surface that
+    // as null and the caller falls back to download. The actual audio
+    // bytes are streamed through /api/stream (same-origin, no ORB).
     const res = await fetch(`/api/preview/${encodeURIComponent(videoId)}`);
     if (!res.ok) {
       throw new Error(`Preview failed: ${res.status}`);
@@ -83,10 +88,10 @@ async function resolvePreviewUrl(videoId: string): Promise<string | null> {
       throw new Error("Preview response missing fields");
     }
     previewCache.set(videoId, {
-      streamUrl: data.streamUrl,
+      streamUrl: proxyUrl,
       expiresAtMs: data.expiresAtMs,
     });
-    return data.streamUrl;
+    return proxyUrl;
   } catch (err) {
     console.warn("Preview fetch failed, falling back to download:", err);
     return null;
@@ -113,6 +118,12 @@ export default function Page() {
   const [inputLabel, setInputLabel] = useState("");
   const [dock, setDock] = useState<DockItem[]>([]);
   const [playingKey, setPlayingKey] = useState<string | null>(null);
+  const [loadingKey, setLoadingKey] = useState<string | null>(null);
+  // Set of row keys with an in-flight per-track download. Lets us spin & gate
+  // the ↓ button so a user can't kick off duplicate jobs by impatient clicks.
+  const [downloadingKeys, setDownloadingKeys] = useState<Set<string>>(
+    () => new Set(),
+  );
 
   const audioRef = useRef<AudioHandle>(null);
 
@@ -436,30 +447,39 @@ export default function Page() {
         return;
       }
 
-      const cachedName = (t as DownloadedTrack).fileName;
-      if (cachedName) {
-        audioRef.current?.play(
-          `/api/audio/${encodeURIComponent(cachedName)}`,
-          trackLabel(t),
-          key,
-        );
-        return;
-      }
-      const videoId = (t as Track).videoId;
-      if (videoId) {
-        const streamUrl = await resolvePreviewUrl(videoId);
-        if (streamUrl) {
-          audioRef.current?.play(streamUrl, trackLabel(t), key);
+      // Show spinner immediately. AudioPlayer's onPlay/onError clear it.
+      setLoadingKey(key);
+      try {
+        const cachedName = (t as DownloadedTrack).fileName;
+        if (cachedName) {
+          audioRef.current?.play(
+            `/api/audio/${encodeURIComponent(cachedName)}`,
+            trackLabel(t),
+            key,
+          );
           return;
         }
-      }
-      const files = await startDownload({ tracks: [t as Track] });
-      if (files && files[0]) {
-        audioRef.current?.play(
-          `/api/audio/${encodeURIComponent(files[0].fileName)}`,
-          trackLabel(t),
-          key,
-        );
+        const videoId = (t as Track).videoId;
+        if (videoId) {
+          const streamUrl = await resolvePreviewUrl(videoId);
+          if (streamUrl) {
+            audioRef.current?.play(streamUrl, trackLabel(t), key);
+            return;
+          }
+        }
+        const files = await startDownload({ tracks: [t as Track] });
+        if (files && files[0]) {
+          audioRef.current?.play(
+            `/api/audio/${encodeURIComponent(files[0].fileName)}`,
+            trackLabel(t),
+            key,
+          );
+        } else {
+          setLoadingKey(null);
+        }
+      } catch (err) {
+        setLoadingKey(null);
+        throw err;
       }
     },
     [startDownload, tracks, playingKey],
@@ -467,20 +487,38 @@ export default function Page() {
 
   const downloadOne = useCallback(
     async (t: Row): Promise<void> => {
-      let fileName = (t as DownloadedTrack).fileName;
-      if (!fileName) {
-        const files = await startDownload({ tracks: [t as Track] });
-        if (!files || !files[0]) return;
-        fileName = files[0].fileName;
+      const idx = tracks.findIndex((x) => x === t);
+      const key = rowKey(t, idx < 0 ? 0 : idx);
+      if (downloadingKeys.has(key)) return;
+
+      setDownloadingKeys((prev) => {
+        const next = new Set(prev);
+        next.add(key);
+        return next;
+      });
+      try {
+        let fileName = (t as DownloadedTrack).fileName;
+        if (!fileName) {
+          const files = await startDownload({ tracks: [t as Track] });
+          if (!files || !files[0]) return;
+          fileName = files[0].fileName;
+        }
+        const a = document.createElement("a");
+        a.href = `/api/audio/${encodeURIComponent(fileName)}`;
+        a.download = fileName;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+      } finally {
+        setDownloadingKeys((prev) => {
+          if (!prev.has(key)) return prev;
+          const next = new Set(prev);
+          next.delete(key);
+          return next;
+        });
       }
-      const a = document.createElement("a");
-      a.href = `/api/audio/${encodeURIComponent(fileName)}`;
-      a.download = fileName;
-      document.body.appendChild(a);
-      a.click();
-      a.remove();
     },
-    [startDownload],
+    [startDownload, tracks, downloadingKeys],
   );
 
   const downloadAllZip = useCallback(async (): Promise<void> => {
@@ -661,6 +699,8 @@ export default function Page() {
         inputLabel={inputLabel}
         note={note}
         playingKey={playingKey}
+        loadingKey={loadingKey}
+        downloadingKeys={downloadingKeys}
         onPlay={playTrack}
         onDownloadOne={downloadOne}
         onDownloadAll={downloadAllZip}
@@ -669,8 +709,12 @@ export default function Page() {
       <Footer />
       <AudioPlayer
         ref={audioRef}
-        onPlay={(k) => setPlayingKey(k)}
+        onPlay={(k) => {
+          setPlayingKey(k);
+          setLoadingKey(null);
+        }}
         onPause={() => setPlayingKey(null)}
+        onError={() => setLoadingKey(null)}
       />
       <DownloadDock items={dock} onClose={closeDock} />
       <HowItWorksModal open={howOpen} onOpenChange={setHowOpen} />

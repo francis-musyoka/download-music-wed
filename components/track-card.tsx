@@ -9,6 +9,8 @@ interface Props {
   rank: number;
   track: Row;
   isPlaying?: boolean;
+  isLoading?: boolean;
+  isDownloading?: boolean;
   onPlay: (t: Row) => void;
   onDownload: (t: Row) => void;
 }
@@ -31,6 +33,8 @@ export const TrackCard = memo(function TrackCard({
   rank,
   track,
   isPlaying,
+  isLoading,
+  isDownloading,
   onPlay,
   onDownload,
 }: Props) {
@@ -54,19 +58,35 @@ export const TrackCard = memo(function TrackCard({
       <div className="chart__actions">
         <button
           type="button"
-          className={`icon-btn primary${isPlaying ? " playing" : ""}`}
+          className={`icon-btn primary${isPlaying ? " playing" : ""}${isLoading ? " loading" : ""}`}
           onClick={() => onPlay(track)}
-          aria-label={isPlaying ? `Pause ${t.title}` : `Play ${t.title}`}
+          disabled={isLoading}
+          aria-label={
+            isLoading
+              ? `Loading ${t.title}`
+              : isPlaying
+                ? `Pause ${t.title}`
+                : `Play ${t.title}`
+          }
+          aria-busy={isLoading}
         >
-          {isPlaying ? "⏸" : "▶"}
+          <span className={isLoading ? "icon-btn__spin" : undefined} aria-hidden>
+            {isLoading ? "◐" : isPlaying ? "⏸" : "▶"}
+          </span>
         </button>
         <button
           type="button"
-          className="icon-btn"
+          className={`icon-btn${isDownloading ? " loading" : ""}`}
           onClick={() => onDownload(track)}
-          aria-label={`Download ${t.title}`}
+          disabled={isDownloading}
+          aria-label={
+            isDownloading ? `Downloading ${t.title}` : `Download ${t.title}`
+          }
+          aria-busy={isDownloading}
         >
-          ↓
+          <span className={isDownloading ? "icon-btn__spin" : undefined} aria-hidden>
+            {isDownloading ? "◐" : "↓"}
+          </span>
         </button>
       </div>
     </div>

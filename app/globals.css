@@ -1331,6 +1331,28 @@ body::before {
   border-color: var(--accent);
   color: var(--bg);
 }
+.icon-btn:disabled {
+  cursor: wait;
+  opacity: 0.85;
+}
+.icon-btn:disabled:hover {
+  border-color: var(--line-bright);
+  color: var(--fg);
+}
+.icon-btn.primary:disabled:hover {
+  background: var(--fg);
+  border-color: var(--fg);
+  color: var(--bg);
+}
+.icon-btn__spin {
+  display: inline-block;
+  animation: icon-btn-spin 1s linear infinite;
+  line-height: 1;
+}
+@keyframes icon-btn-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
 
 /* ─── Download panel (sticky) ──────────────── */
 .dock {
