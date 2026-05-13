@@ -1,122 +1,160 @@
 "use client";
 
+import { Download, ListMusic, Play } from "lucide-react";
 import type { Track, DownloadedTrack } from "@/lib/types";
 import { TrackCard } from "./track-card";
+import { BulkActionButton } from "./ui/bulk-action-button";
+import { toast } from "@/hooks/use-toast";
 
 type Row = Track | DownloadedTrack;
 
 interface Props {
-  tracks: Row[];
-  inputLabel: string;
-  note?: string;
-  playingKey?: string | null;
-  onPlay: (t: Row) => void;
-  onDownloadOne: (t: Row) => void;
-  onDownloadAll: () => void;
-  onDownloadM3U: () => void;
-  zipBusy?: boolean;
+    tracks: Row[];
+    inputLabel: string;
+    note?: string;
+    playingKey?: string | null;
+    loadingKey?: string | null;
+    downloadingKeys?: Set<string>;
+    /** True while a bulk ZIP/M3U job is running. */
+    bulkBusy?: boolean;
+    /** True if any per-track download is in flight. */
+    anyPerTrackBusy?: boolean;
+    onPlay: (t: Row) => void;
+    onDownloadOne: (t: Row) => void;
+    onDownloadAll: () => void;
+    onDownloadM3U: () => void;
 }
 
 function rowKey(t: Row, i: number): string {
-  const v = (t as Track).videoId;
-  if (v) return v;
-  const f = (t as DownloadedTrack).fileName;
-  if (f) return f;
-  return String(i);
+    const v = (t as Track).videoId;
+    if (v) return v;
+    const f = (t as DownloadedTrack).fileName;
+    if (f) return f;
+    return String(i);
 }
 
 export function ResultsList({
-  tracks,
-  inputLabel,
-  note,
-  playingKey,
-  onPlay,
-  onDownloadOne,
-  onDownloadAll,
-  onDownloadM3U,
-  zipBusy,
+    tracks,
+    inputLabel,
+    note,
+    playingKey,
+    loadingKey,
+    downloadingKeys,
+    bulkBusy,
+    anyPerTrackBusy,
+    onPlay,
+    onDownloadOne,
+    onDownloadAll,
+    onDownloadM3U,
 }: Props) {
-  if (tracks.length === 0) return null;
-  return (
-    <section className="chart" id="results">
-      <div className="container-x">
-        <div className="chart__head">
-          <div>
-            <span
-              className="eyebrow"
-              style={{ display: "block", marginBottom: 12 }}
-            >
-              Search results · {inputLabel} · {tracks.length} tracks
-            </span>
-            <h2 className="display">
-              Preview and
-              <br />
-              <em>download.</em>
-            </h2>
-            <p
-              style={{
-                color: "var(--fg-dim)",
-                fontSize: 15,
-                lineHeight: 1.6,
-                margin: "18px 0 0",
-                maxWidth: 520,
-              }}
-            >
-              Click <strong style={{ color: "var(--fg)" }}>▶</strong> to preview
-              any track in your browser. Click{" "}
-              <strong style={{ color: "var(--fg)" }}>↓</strong> to save it to
-              your device. Or grab all {tracks.length} at once.
-            </p>
-            {note && (
-              <p
-                role="status"
-                style={{
-                  color: "var(--fg-dim)",
-                  fontSize: 14,
-                  lineHeight: 1.6,
-                  margin: "12px 0 0",
-                  maxWidth: 520,
-                  fontStyle: "italic",
-                }}
-              >
-                {note}
-              </p>
-            )}
-          </div>
-          <div className="chart__bulk">
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={onDownloadAll}
-              disabled={zipBusy}
-            >
-              ↓ Download all (ZIP)
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={onDownloadM3U}
-            >
-              ↓ Download playlist (M3U)
-            </button>
-          </div>
-        </div>
-        <div className="chart__list">
-          {tracks.map((t, i) => {
-            const k = rowKey(t, i);
-            return (
-              <TrackCard
-                key={k}
-                rank={i + 1}
-                track={t}
-                isPlaying={playingKey === k}
-                onPlay={onPlay}
-                onDownload={onDownloadOne}
-              />
-            );
-          })}
-        </div>
-      </div>
-    </section>
-  );
+    if (tracks.length === 0) return null;
+
+    const blocked = !!(bulkBusy || anyPerTrackBusy);
+    const blockedReason = bulkBusy
+        ? "Finish or wait for the current bundle/playlist to complete."
+        : anyPerTrackBusy
+            ? "Finish or wait for the per-track downloads to complete."
+            : null;
+
+    const handleBulkClick = (action: () => void) => () => {
+        if (blocked) {
+            toast({
+                title: "Hold on",
+                description: blockedReason ?? "",
+                variant: "warning",
+            });
+            return;
+        }
+        action();
+    };
+
+    return (
+        <section id="results" className="border-b border-line py-14 md:py-20">
+            <div className="mx-auto max-w-[1400px] px-6 lg:px-12">
+                <div className="mb-12 flex flex-col gap-8 lg:grid lg:grid-cols-[1fr_360px] lg:items-start lg:gap-10">
+                    <div>
+                        <span className="mb-3 block font-mono text-xs uppercase tracking-widest text-fg-dim">
+                            Search results <span className="text-accent">✦</span> {inputLabel}{" "}
+                            <span className="text-accent">✦</span> {tracks.length} tracks
+                        </span>
+                        <h2
+                            className="m-0 font-display font-[380] text-[clamp(44px,6vw,96px)] tracking-tighter leading-[0.95]"
+                            style={{ fontVariationSettings: '"SOFT" 60, "WONK" 1, "opsz" 144' }}
+                        >
+                            Preview and <em className="italic text-accent pl-2">download.</em>
+                        </h2>
+                        <p className="m-0 mt-4 max-w-lg text-lg leading-relaxed text-fg-dim tracking-wide">
+                            Click <InlinePlayHint /> to preview any track in your browser. Click{" "}
+                            <InlineDownloadHint /> to save it as 320kbps. Or grab all{" "}
+                            <strong className="text-fg">{tracks.length} at once</strong> .
+                        </p>
+                        {note && (
+                            <p
+                                role="status"
+                                className="m-0 mt-3 max-w-lg text-sm italic leading-relaxed text-fg-dim"
+                            >
+                                {note}
+                            </p>
+                        )}
+                    </div>
+                    <div className="flex flex-col gap-3 sm:flex-row lg:flex-col">
+                        <BulkActionButton
+                            label="Bundle"
+                            title="Download all (ZIP)"
+                            sub={`${tracks.length} tracks`}
+                            icon={<Download />}
+                            accent="primary"
+                            blocked={blocked}
+                            onClick={handleBulkClick(onDownloadAll)}
+                            aria-label="Download all tracks as ZIP"
+                        />
+                        <BulkActionButton
+                            label="Playlist"
+                            title="Download (M3U)"
+                            sub="Streaming order"
+                            icon={<ListMusic />}
+                            accent="secondary"
+                            blocked={blocked}
+                            onClick={handleBulkClick(onDownloadM3U)}
+                            aria-label="Download playlist as M3U"
+                        />
+                    </div>
+                </div>
+                <div className="border-t border-line">
+                    {tracks.map((t, i) => {
+                        const k = rowKey(t, i);
+                        return (
+                            <TrackCard
+                                key={k}
+                                rank={i + 1}
+                                track={t}
+                                isPlaying={playingKey === k}
+                                isLoading={loadingKey === k}
+                                isDownloading={downloadingKeys?.has(k) ?? false}
+                                bulkBusy={bulkBusy}
+                                onPlay={onPlay}
+                                onDownload={onDownloadOne}
+                            />
+                        );
+                    })}
+                </div>
+            </div>
+        </section>
+    );
+}
+
+function InlinePlayHint() {
+    return (
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full bg-accent align-middle text-black">
+            <Play size={12} fill="currentColor" />
+        </span>
+    );
+}
+
+function InlineDownloadHint() {
+    return (
+        <span className="inline-flex h-6 w-6 items-center justify-center rounded-full border border-fg-dim align-middle text-fg">
+            <Download size={12} />
+        </span>
+    );
 }
