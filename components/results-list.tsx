@@ -42,7 +42,7 @@ export function ResultsList({ tracks, inputLabel,
 }: Props) {
     if (tracks.length === 0) return null;
     return (
-        <section id="results" className="border-b border-line pb-20 mt-10">
+        <section id="results" className="border-b border-line py-14 md:py-20">
             <div className="mx-auto max-w-[1400px] px-6 lg:px-12">
                 <div className="mb-12 flex flex-col gap-8 lg:grid lg:grid-cols-[1fr_360px] lg:items-start lg:gap-10">
                     <div>

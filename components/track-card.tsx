@@ -70,15 +70,22 @@ export const TrackCard = memo(function TrackCard({
             </div>
 
             <div className="flex items-center justify-between gap-3 md:contents">
-                {duration && (
-                    <span className="font-mono text-xs tracking-widest text-fg-dim md:text-sm">
+                {duration ? (
+                    <span className="min-w-12 font-mono text-xs tracking-widest text-fg-dim md:text-sm">
                         {duration}
                     </span>
+                ) : (
+                    <span aria-hidden className="min-w-12" />
                 )}
-                {score && (
+                {score ? (
                     <span className="bg-accent-2 px-2 py-0.5 font-mono text-xs font-semibold text-bg">
                         {score}
                     </span>
+                ) : (
+                    <span
+                        aria-hidden
+                        className="invisible bg-accent-2 px-2 py-0.5 font-mono text-xs font-semibold text-bg"
+                    />
                 )}
                 <div className="flex items-center gap-2 md:contents">
                     <IconActionButton
