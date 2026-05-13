@@ -4,6 +4,7 @@ import { Download, ListMusic, Play } from "lucide-react";
 import type { Track, DownloadedTrack } from "@/lib/types";
 import { TrackCard } from "./track-card";
 import { BulkActionButton } from "./ui/bulk-action-button";
+import { toast } from "@/hooks/use-toast";
 
 type Row = Track | DownloadedTrack;
 
@@ -14,11 +15,14 @@ interface Props {
     playingKey?: string | null;
     loadingKey?: string | null;
     downloadingKeys?: Set<string>;
+    /** True while a bulk ZIP/M3U job is running. */
+    bulkBusy?: boolean;
+    /** True if any per-track download is in flight. */
+    anyPerTrackBusy?: boolean;
     onPlay: (t: Row) => void;
     onDownloadOne: (t: Row) => void;
     onDownloadAll: () => void;
     onDownloadM3U: () => void;
-    zipBusy?: boolean;
 }
 
 function rowKey(t: Row, i: number): string {
@@ -29,18 +33,41 @@ function rowKey(t: Row, i: number): string {
     return String(i);
 }
 
-export function ResultsList({ tracks, inputLabel,
+export function ResultsList({
+    tracks,
+    inputLabel,
     note,
     playingKey,
     loadingKey,
     downloadingKeys,
+    bulkBusy,
+    anyPerTrackBusy,
     onPlay,
     onDownloadOne,
     onDownloadAll,
     onDownloadM3U,
-    zipBusy,
 }: Props) {
     if (tracks.length === 0) return null;
+
+    const blocked = !!(bulkBusy || anyPerTrackBusy);
+    const blockedReason = bulkBusy
+        ? "Finish or wait for the current bundle/playlist to complete."
+        : anyPerTrackBusy
+            ? "Finish or wait for the per-track downloads to complete."
+            : null;
+
+    const handleBulkClick = (action: () => void) => () => {
+        if (blocked) {
+            toast({
+                title: "Hold on",
+                description: blockedReason ?? "",
+                variant: "warning",
+            });
+            return;
+        }
+        action();
+    };
+
     return (
         <section id="results" className="border-b border-line py-14 md:py-20">
             <div className="mx-auto max-w-[1400px] px-6 lg:px-12">
@@ -77,8 +104,8 @@ export function ResultsList({ tracks, inputLabel,
                             sub={`${tracks.length} tracks`}
                             icon={<Download />}
                             accent="primary"
-                            onClick={onDownloadAll}
-                            disabled={zipBusy}
+                            blocked={blocked}
+                            onClick={handleBulkClick(onDownloadAll)}
                             aria-label="Download all tracks as ZIP"
                         />
                         <BulkActionButton
@@ -87,7 +114,8 @@ export function ResultsList({ tracks, inputLabel,
                             sub="Streaming order"
                             icon={<ListMusic />}
                             accent="secondary"
-                            onClick={onDownloadM3U}
+                            blocked={blocked}
+                            onClick={handleBulkClick(onDownloadM3U)}
                             aria-label="Download playlist as M3U"
                         />
                     </div>
@@ -103,6 +131,7 @@ export function ResultsList({ tracks, inputLabel,
                                 isPlaying={playingKey === k}
                                 isLoading={loadingKey === k}
                                 isDownloading={downloadingKeys?.has(k) ?? false}
+                                bulkBusy={bulkBusy}
                                 onPlay={onPlay}
                                 onDownload={onDownloadOne}
                             />

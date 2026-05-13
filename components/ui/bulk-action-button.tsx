@@ -11,6 +11,13 @@ interface Props extends Omit<ButtonHTMLAttributes<HTMLButtonElement>, "title"> {
     sub?: string;
     icon: ReactNode;
     accent?: Accent;
+    /**
+     * Visually disabled (opacity + cursor) and aria-disabled for a11y, but the
+     * native `disabled` attribute is NOT set — onClick still fires so the parent
+     * can decide to show a toast / dialog / etc. Use `disabled` instead when the
+     * button should be truly inert.
+     */
+    blocked?: boolean;
 }
 
 export function BulkActionButton({
@@ -19,13 +26,16 @@ export function BulkActionButton({
     sub,
     icon,
     accent = "primary",
+    blocked = false,
     className,
     type,
+    "aria-disabled": ariaDisabled,
     ...rest
 }: Props) {
     return (
         <button
             type={type ?? "button"}
+            aria-disabled={blocked || ariaDisabled}
             className={cn(
                 "group flex w-full items-center justify-between gap-4",
                 "rounded-2xl border border-line-bright bg-bg-2 p-5 text-left",
@@ -34,6 +44,9 @@ export function BulkActionButton({
                 accent === "primary" && "hover:border-accent",
                 accent === "secondary" && "hover:border-accent-2",
                 "disabled:opacity-55 disabled:cursor-not-allowed disabled:pointer-events-none",
+                blocked && "opacity-55 cursor-not-allowed hover:translate-y-0",
+                blocked && accent === "primary" && "hover:border-line-bright",
+                blocked && accent === "secondary" && "hover:border-line-bright",
                 className,
             )}
             {...rest}
@@ -54,6 +67,7 @@ export function BulkActionButton({
                     "[&>svg]:size-5",
                     accent === "primary" && "bg-accent",
                     accent === "secondary" && "bg-accent-2",
+                    blocked && "group-hover:scale-100",
                 )}
             >
                 {icon}

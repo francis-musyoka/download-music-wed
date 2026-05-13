@@ -14,6 +14,8 @@ interface Props {
     isPlaying?: boolean;
     isLoading?: boolean;
     isDownloading?: boolean;
+    /** True while a bulk ZIP/M3U job is running — disables the per-track ↓ button. */
+    bulkBusy?: boolean;
     onPlay: (t: Row) => void;
     onDownload: (t: Row) => void;
 }
@@ -29,6 +31,7 @@ export const TrackCard = memo(function TrackCard({
     isPlaying,
     isLoading,
     isDownloading,
+    bulkBusy,
     onPlay,
     onDownload,
 }: Props) {
@@ -105,6 +108,7 @@ export const TrackCard = memo(function TrackCard({
                     </IconActionButton>
                     <IconActionButton
                         loading={isDownloading}
+                        disabled={bulkBusy || isDownloading}
                         onClick={() => onDownload(track)}
                         aria-label={isDownloading ? `Downloading ${t.title}` : `Download ${t.title}`}
                     >

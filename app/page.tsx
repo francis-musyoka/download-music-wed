@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Nav } from "@/components/nav";
 import { Hero } from "@/components/hero";
-import { ValueProps } from "@/components/value-props";
 import { HowToDownload } from "@/components/how-to-download";
 import { HowItWorksModal } from "@/components/how-it-works-modal";
 import { AppPanel, type StatusLine } from "@/components/app-panel";
@@ -13,7 +12,6 @@ import { AudioPlayer, type AudioHandle } from "@/components/audio-player";
 import { DownloadDock, type DockItem } from "@/components/download-dock";
 import { subscribeJob } from "@/lib/client/sse";
 import { toast } from "@/hooks/use-toast";
-import { MOCK_TRACKS } from "@/lib/fixtures/mock-tracks";
 import type {
     DownloadedTrack,
     Mode,
@@ -114,11 +112,9 @@ export default function Page() {
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState<StatusLine[]>([]);
     const [tracks, setTracks] = useState<Row[]>([]);
-    // const [tracks, setTracks] = useState<Row[]>(MOCK_TRACKS);
     const [note, setNote] = useState<string | undefined>(undefined);
     const [quota, setQuota] = useState<{ used: number; max: number; resetsAt: number } | undefined>(undefined);
     const [inputLabel, setInputLabel] = useState("");
-    // const [inputLabel, setInputLabel] = useState("mock · afrobeats");
     const [dock, setDock] = useState<DockItem[]>([]);
     const [playingKey, setPlayingKey] = useState<string | null>(null);
     const [loadingKey, setLoadingKey] = useState<string | null>(null);
@@ -127,6 +123,10 @@ export default function Page() {
     const [downloadingKeys, setDownloadingKeys] = useState<Set<string>>(
         () => new Set(),
     );
+    // True while a bulk ZIP or M3U job is running. Independent of `busy` (which
+    // is shared across search + every download) so we can gate per-track ↓ and
+    // the other bulk button without affecting the search spinner.
+    const [bulkBusy, setBulkBusy] = useState(false);
 
     const audioRef = useRef<AudioHandle>(null);
 
@@ -534,6 +534,7 @@ export default function Page() {
         const payloadTracks = rankTracks.length > 0 ? rankTracks : (tracks as Track[]);
 
         setBusy(true);
+        setBulkBusy(true);
         let jobId: string;
         try {
             const res = await fetch("/api/download", {
@@ -552,6 +553,7 @@ export default function Page() {
             jobId = data.jobId;
         } catch (err) {
             setBusy(false);
+            setBulkBusy(false);
             toast({
                 title: "ZIP failed to start",
                 description: err instanceof Error ? err.message : String(err),
@@ -592,6 +594,7 @@ export default function Page() {
             },
             onDone: (done) => {
                 setBusy(false);
+                setBulkBusy(false);
                 if (done.stage === "complete") {
                     // Trigger ZIP download. Using location.href keeps any cookies and
                     // works for file-download response headers from the API.
@@ -615,6 +618,7 @@ export default function Page() {
         const payloadTracks = rankTracks.length > 0 ? rankTracks : (tracks as Track[]);
 
         setBusy(true);
+        setBulkBusy(true);
         let jobId: string;
         try {
             const res = await fetch("/api/download", {
@@ -633,6 +637,7 @@ export default function Page() {
             jobId = data.jobId;
         } catch (err) {
             setBusy(false);
+            setBulkBusy(false);
             toast({
                 title: "M3U failed to start",
                 description: err instanceof Error ? err.message : String(err),
@@ -673,6 +678,7 @@ export default function Page() {
             },
             onDone: (done) => {
                 setBusy(false);
+                setBulkBusy(false);
                 if (done.stage === "complete") {
                     toast({
                         title: "Playlist written",
@@ -694,7 +700,6 @@ export default function Page() {
         <>
             <Nav onHowClick={openHow} />
             <Hero onHowClick={openHow} />
-            {/* <ValueProps /> */}
             <HowToDownload />
             <AppPanel onSubmit={submit} statusLines={status} busy={busy} quota={quota} />
             <ResultsList
@@ -704,6 +709,8 @@ export default function Page() {
                 playingKey={playingKey}
                 loadingKey={loadingKey}
                 downloadingKeys={downloadingKeys}
+                bulkBusy={bulkBusy}
+                anyPerTrackBusy={downloadingKeys.size > 0}
                 onPlay={playTrack}
                 onDownloadOne={downloadOne}
                 onDownloadAll={downloadAllZip}
