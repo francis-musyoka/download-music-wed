@@ -31,6 +31,7 @@ export function GenreInput({ genre, limit, name, onGenre, onLimit, onName }: Pro
         <div className="flex flex-col gap-6">
             <TextInput
                 label="Genre"
+                required
                 value={genre}
                 list="genre-suggestions"
                 autoComplete="off"

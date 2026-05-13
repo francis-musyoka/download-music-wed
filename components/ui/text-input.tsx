@@ -20,6 +20,11 @@ export function TextInput({ label, inputType = "text", id, className, trailing, 
                 className="font-mono text-[11px] uppercase tracking-widest text-fg-dim"
             >
                 {label}
+                {rest.required && (
+                    <span className="ml-1 text-red-600" aria-hidden>
+                        *
+                    </span>
+                )}
             </label>
             <div className="flex items-baseline gap-2">
                 <input

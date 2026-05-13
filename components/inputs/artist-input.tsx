@@ -20,6 +20,7 @@ export function ArtistInput({ artist, limit, name, onArtist, onLimit, onName }: 
         <div className="flex flex-col gap-6">
             <TextInput
                 label="Artist"
+                required
                 value={artist}
                 placeholder="Burna Boy · Tems · Asake…"
                 onChange={(e) => onArtist(e.target.value)}
