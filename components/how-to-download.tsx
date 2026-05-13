@@ -55,7 +55,7 @@ export function HowToDownload() {
             <div className="relative mx-auto max-w-[1400px] px-6 md:px-12">
                 <header className="mb-8 flex flex-col gap-4 sm:flex-row sm:items-end sm:justify-between">
                     <h2
-                        className="m-0 whitespace-nowrap font-display font-medium tracking-tighter text-2xl sm:text-3xl md:text-4xl lg:text-5xl"
+                        className="m-0 whitespace-nowrap font-display font-medium tracking-tighter text-3xl sm:text-3xl md:text-4xl lg:text-5xl"
                         style={{
                             fontVariationSettings: '"SOFT" 60, "WONK" 1, "opsz" 144',
                         }}
@@ -98,7 +98,7 @@ export function HowToDownload() {
                                         "shrink-0 snap-center border border-line-bright bg-bg-2 p-6 md:p-8",
                                         "w-[85vw] max-w-md sm:w-[60vw] md:w-[420px]",
                                         i === active &&
-                                            "border-fg shadow-[6px_6px_0_var(--line-bright)]",
+                                        "border-fg shadow-[6px_6px_0_var(--line-bright)]",
                                     )}
                                 >
                                     <span

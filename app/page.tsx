@@ -113,10 +113,12 @@ export default function Page() {
     const [howOpen, setHowOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState<StatusLine[]>([]);
-    const [tracks, setTracks] = useState<Row[]>(MOCK_TRACKS);
+    const [tracks, setTracks] = useState<Row[]>([]);
+    // const [tracks, setTracks] = useState<Row[]>(MOCK_TRACKS);
     const [note, setNote] = useState<string | undefined>(undefined);
     const [quota, setQuota] = useState<{ used: number; max: number; resetsAt: number } | undefined>(undefined);
-    const [inputLabel, setInputLabel] = useState("mock · afrobeats");
+    const [inputLabel, setInputLabel] = useState("");
+    // const [inputLabel, setInputLabel] = useState("mock · afrobeats");
     const [dock, setDock] = useState<DockItem[]>([]);
     const [playingKey, setPlayingKey] = useState<string | null>(null);
     const [loadingKey, setLoadingKey] = useState<string | null>(null);
