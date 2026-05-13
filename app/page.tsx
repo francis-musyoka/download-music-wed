@@ -13,6 +13,7 @@ import { AudioPlayer, type AudioHandle } from "@/components/audio-player";
 import { DownloadDock, type DockItem } from "@/components/download-dock";
 import { subscribeJob } from "@/lib/client/sse";
 import { toast } from "@/hooks/use-toast";
+import { MOCK_TRACKS } from "@/lib/fixtures/mock-tracks";
 import type {
     DownloadedTrack,
     Mode,
@@ -112,10 +113,10 @@ export default function Page() {
     const [howOpen, setHowOpen] = useState(false);
     const [busy, setBusy] = useState(false);
     const [status, setStatus] = useState<StatusLine[]>([]);
-    const [tracks, setTracks] = useState<Row[]>([]);
+    const [tracks, setTracks] = useState<Row[]>(MOCK_TRACKS);
     const [note, setNote] = useState<string | undefined>(undefined);
     const [quota, setQuota] = useState<{ used: number; max: number; resetsAt: number } | undefined>(undefined);
-    const [inputLabel, setInputLabel] = useState("");
+    const [inputLabel, setInputLabel] = useState("mock · afrobeats");
     const [dock, setDock] = useState<DockItem[]>([]);
     const [playingKey, setPlayingKey] = useState<string | null>(null);
     const [loadingKey, setLoadingKey] = useState<string | null>(null);
