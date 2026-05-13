@@ -21,6 +21,8 @@ interface AudioPlayerProps {
     onPlay?: (key: string) => void;
     onPause?: () => void;
     onError?: () => void;
+    /** Fires when the player becomes visible (track loaded) or hides (closed, ended). */
+    onVisibilityChange?: (visible: boolean) => void;
 }
 
 function fmtTime(sec: number): string {
@@ -30,7 +32,7 @@ function fmtTime(sec: number): string {
     return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function AudioPlayer({ ref, onPlay, onPause, onError }: AudioPlayerProps) {
+export function AudioPlayer({ ref, onPlay, onPause, onError, onVisibilityChange }: AudioPlayerProps) {
     const audioRef = useRef<HTMLAudioElement>(null);
     const progressRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -109,6 +111,10 @@ export function AudioPlayer({ ref, onPlay, onPause, onError }: AudioPlayerProps)
             el.removeEventListener("error", onErrorEv);
         };
     }, [onPlay, onPause, onError]);
+
+    useEffect(() => {
+        onVisibilityChange?.(!!label);
+    }, [label, onVisibilityChange]);
 
     const togglePlay = () => {
         const el = audioRef.current;

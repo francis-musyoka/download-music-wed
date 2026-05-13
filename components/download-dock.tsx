@@ -17,9 +17,11 @@ interface Props {
     items: DockItem[];
     onRetry?: (id: string) => void;
     onClose?: () => void;
+    /** Lift the auto-anchored dock above the audio player to avoid overlap on small screens. */
+    liftedAbove?: boolean;
 }
 
-export function DownloadDock({ items, onRetry, onClose }: Props) {
+export function DownloadDock({ items, onRetry, onClose, liftedAbove }: Props) {
     const dockRef = useRef<HTMLElement>(null);
     const { handleRef, pos, dragging } = useDraggable<HTMLDivElement>(dockRef);
 
@@ -34,7 +36,11 @@ export function DownloadDock({ items, onRetry, onClose }: Props) {
                 "shadow-[0_30px_60px_-20px_rgba(0,0,0,0.8),8px_8px_0_var(--accent)]",
                 dragging &&
                     "shadow-[0_40px_80px_-20px_rgba(0,0,0,0.9),12px_12px_0_var(--accent)]",
-                !pos && "bottom-4 right-3 md:bottom-6 md:right-6",
+                !pos && [
+                    "right-3 md:right-6",
+                    "transition-[bottom] duration-200 ease-out",
+                    liftedAbove ? "bottom-[5.5rem] md:bottom-24" : "bottom-4 md:bottom-6",
+                ],
             )}
             style={
                 pos

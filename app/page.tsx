@@ -127,6 +127,9 @@ export default function Page() {
     // is shared across search + every download) so we can gate per-track ↓ and
     // the other bulk button without affecting the search spinner.
     const [bulkBusy, setBulkBusy] = useState(false);
+    // Audio player open/closed (label set). Used to lift the DownloadDock above
+    // the player on small screens so they don't overlap at the bottom-right.
+    const [audioVisible, setAudioVisible] = useState(false);
 
     const audioRef = useRef<AudioHandle>(null);
 
@@ -725,8 +728,9 @@ export default function Page() {
                 }}
                 onPause={() => setPlayingKey(null)}
                 onError={() => setLoadingKey(null)}
+                onVisibilityChange={setAudioVisible}
             />
-            <DownloadDock items={dock} onClose={closeDock} />
+            <DownloadDock items={dock} onClose={closeDock} liftedAbove={audioVisible} />
             <HowItWorksModal open={howOpen} onOpenChange={setHowOpen} />
         </>
     );
