@@ -119,8 +119,8 @@ export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
                                     onClick={() => setMode(m)}
                                     aria-pressed={mode === m}
                                     className={cn(
-                                        "group relative flex flex-1 items-center justify-center gap-2 p-4 transition-colors",
-                                        "md:flex-none md:flex-col md:gap-3 md:py-6",
+                                        "group relative flex flex-1 min-w-0 flex-col items-center justify-center gap-1.5 px-2 py-3 transition-colors",
+                                        "md:flex-none md:gap-3 md:px-4 md:py-6",
                                         mode === m
                                             ? "bg-bg-2 text-accent"
                                             : "text-fg-dim hover:bg-bg-2 hover:text-fg",
