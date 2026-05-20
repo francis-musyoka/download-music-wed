@@ -20,7 +20,7 @@ export function getSeen(sessionId: string, queryKey: string): Set<string> {
     if (!bySession) return new Set();
     const entry = bySession.get(queryKey);
     if (!entry) return new Set();
-    return entry.trackIds;
+    return new Set(entry.trackIds);
 }
 
 export function markSeen(sessionId: string, queryKey: string, trackIds: string[]): void {

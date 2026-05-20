@@ -40,3 +40,21 @@ test("query keys are isolated", () => {
     markSeen("session1", "genre:bongo", ["b"]);
     expect(getSeen("session1", "genre:afrobeats").has("b")).toBe(false);
 });
+
+test("getSeen returns a defensive copy — mutations don't leak back", () => {
+    markSeen("session1", "genre:afrobeats", ["a", "b"]);
+    const seen = getSeen("session1", "genre:afrobeats");
+    seen.delete("a");
+    seen.add("z");
+    // Original state must be unaffected
+    const fresh = getSeen("session1", "genre:afrobeats");
+    expect(fresh.has("a")).toBe(true);
+    expect(fresh.has("b")).toBe(true);
+    expect(fresh.has("z")).toBe(false);
+    expect(fresh.size).toBe(2);
+});
+
+test("markSeen is a no-op for empty trackIds", () => {
+    markSeen("session1", "genre:afrobeats", []);
+    expect(getSeen("session1", "genre:afrobeats").size).toBe(0);
+});
