@@ -103,3 +103,16 @@ test("SpotifyTrackSchema accepts a simplified track (no popularity, no external_
     expect(parsed.popularity).toBeUndefined();
     expect(parsed.external_ids).toBeUndefined();
 });
+
+test("SpotifyTrackSchema accepts an album-tracks SimplifiedTrack without album", () => {
+    const parsed = SpotifyTrackSchema.parse({
+        id: "x",
+        name: "x",
+        artists: [{ id: "a", name: "A" }],
+        duration_ms: 1000,
+        uri: "spotify:track:x",
+    });
+    expect(parsed.id).toBe("x");
+    expect(parsed.album).toBeUndefined();
+    expect(parsed.popularity).toBeUndefined();
+});

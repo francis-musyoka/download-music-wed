@@ -15,7 +15,7 @@ export const SpotifyTrackSchema = z.object({
     id: z.string(),
     name: z.string(),
     artists: z.array(SpotifyArtistSchema).min(1),
-    album: AlbumSchema,
+    album: AlbumSchema.optional(),
     duration_ms: z.number().int().nonnegative(),
     popularity: z.number().int().min(0).max(100).optional(),
     external_ids: z.object({

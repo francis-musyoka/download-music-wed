@@ -13,6 +13,11 @@ const tokenState =
     g.__downloadMusicSpotifyToken ??
     (g.__downloadMusicSpotifyToken = { accessToken: null, expiresAt: 0 });
 
+/** Forces the next getToken() call to bypass the cache. */
+export function clearTokenCache(): void {
+    tokenState.expiresAt = 0;
+}
+
 export function createTokenFetcher(opts?: { fetchImpl?: typeof fetch }): () => Promise<string> {
     const fetchImpl = opts?.fetchImpl ?? fetch;
 

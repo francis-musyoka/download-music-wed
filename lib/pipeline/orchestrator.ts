@@ -624,7 +624,7 @@ function spotifyToTrack(sp: SpotifyTrack, yt: YtCandidate): Track {
         spotifyId: sp.id,
         popularity: sp.popularity,
         isrc: sp.external_ids?.isrc,
-        releaseDate: sp.album.release_date,
+        releaseDate: sp.album?.release_date,
     };
 }
 

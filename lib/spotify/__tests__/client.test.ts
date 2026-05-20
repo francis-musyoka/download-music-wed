@@ -129,3 +129,62 @@ test("spotifyAvailable returns true when env vars present and breaker closed", (
     process.env.SPOTIFY_CLIENT_SECRET = "secret";
     expect(spotifyAvailable()).toBe(true);
 });
+
+test("401 path forces a fresh token via clearTokenCache", async () => {
+    let tokenCallCount = 0;
+    let got401Yet = false;
+    const fetchImpl: typeof fetch = async (input) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/token")) {
+            tokenCallCount += 1;
+            return new Response(
+                JSON.stringify({ access_token: `tok-${tokenCallCount}`, token_type: "Bearer", expires_in: 3600 }),
+                { status: 200, headers: { "content-type": "application/json" } },
+            );
+        }
+        if (!got401Yet) {
+            got401Yet = true;
+            return new Response("Unauthorized", { status: 401 });
+        }
+        return new Response(JSON.stringify({ tracks: { items: [], total: 0 } }), {
+            status: 200, headers: { "content-type": "application/json" },
+        });
+    };
+    const client = createSpotifyClient({ fetchImpl });
+    await client.searchTracks("force 401");
+    // Token endpoint should have been hit TWICE — once initially, once after the 401.
+    expect(tokenCallCount).toBe(2);
+});
+
+test("429 errors do NOT trip the circuit breaker", async () => {
+    // Reset breaker so it starts closed
+    const g = globalThis as typeof globalThis & {
+        __downloadMusicSpotifyBreaker?: { failureCount: number; openUntil: number };
+    };
+    if (g.__downloadMusicSpotifyBreaker) {
+        g.__downloadMusicSpotifyBreaker.failureCount = 0;
+        g.__downloadMusicSpotifyBreaker.openUntil = 0;
+    }
+    spotifyCache.clear();
+
+    let calls = 0;
+    const fetchImpl: typeof fetch = async (input) => {
+        const url = typeof input === "string" ? input : input.toString();
+        if (url.includes("/api/token")) {
+            return new Response(
+                JSON.stringify({ access_token: "tok", token_type: "Bearer", expires_in: 3600 }),
+                { status: 200, headers: { "content-type": "application/json" } },
+            );
+        }
+        calls += 1;
+        return new Response("Too Many Requests", { status: 429, headers: { "retry-after": "10" } });
+    };
+    const client = createSpotifyClient({ fetchImpl });
+    // Hit 429 5 times — would have opened a 5-threshold breaker if 429 counted as failures.
+    for (let i = 0; i < 5; i++) {
+        await client.searchTracks(`q${i}`).catch(() => {});
+    }
+    // Breaker state should still be closed (failureCount < threshold)
+    const { productionBreaker } = await import("../auth");
+    expect(productionBreaker.isOpen()).toBe(false);
+});

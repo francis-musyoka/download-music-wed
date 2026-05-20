@@ -1,4 +1,4 @@
-import { createTokenFetcher, productionBreaker } from "./auth";
+import { clearTokenCache, createTokenFetcher, productionBreaker } from "./auth";
 import { spotifyCache, type CacheKey } from "./cache";
 import {
     SpotifySearchTracksResponseSchema,
@@ -80,7 +80,9 @@ export function createSpotifyClient(opts?: { fetchImpl?: typeof fetch }): Spotif
                 }
 
                 if (res.status === 401) {
-                    // refresh-and-retry once
+                    // refresh-and-retry once — force bypass of token cache so we
+                    // don't reuse a token Spotify already invalidated.
+                    clearTokenCache();
                     const fresh = await getToken();
                     const res2 = await fetchImpl(`${API_BASE}${path}`, {
                         headers: { Authorization: `Bearer ${fresh}` },
@@ -116,9 +118,17 @@ export function createSpotifyClient(opts?: { fetchImpl?: typeof fetch }): Spotif
                     productionBreaker.recordSuccess();
                     return result;
                 } catch (err2) {
-                    productionBreaker.recordFailure();
+                    // Only count 5xx failures (not 429) toward the breaker.
+                    if (!(err2 instanceof Error && err2.message.startsWith("Spotify 429"))) {
+                        productionBreaker.recordFailure();
+                    }
                     throw err2;
                 }
+            }
+            // 429 is a client-side throttle signal, not a service-health signal —
+            // don't penalise the breaker.
+            if (err instanceof Error && err.message.startsWith("Spotify 429")) {
+                throw err;
             }
             productionBreaker.recordFailure();
             throw err;
