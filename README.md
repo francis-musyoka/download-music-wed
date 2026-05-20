@@ -65,8 +65,8 @@ Other commands:
 npm run build         # production build
 npm run start         # serve the production build
 npm run typecheck     # tsc --noEmit
-npm test              # node --test, runs lib/**/__tests__/*.test.ts
-npm run e2e           # Playwright spec: e2e/song-requires-artist.spec.ts
+npm test              # vitest run
+npm run test:watch    # vitest watch
 npm run eval          # search-quality eval script (scripts/eval-search.ts)
 npm run lint          # next lint
 ```
@@ -88,6 +88,10 @@ npm run lint          # next lint
 | `OPENAI_TIMEOUT_UNDERSTAND_MS` | `5000` | Per-call timeout for understand |
 | `OPENAI_TIMEOUT_RERANK_MS` | `15000` | Per-call timeout for classifier |
 | `OPENAI_BASE_URL` | _empty_ | Override for local test fakes; leave empty in prod |
+| `SPOTIFY_CLIENT_ID`       | _empty_           | Required for Spotify integration |
+| `SPOTIFY_CLIENT_SECRET`   | _empty_           | Required for Spotify integration |
+| `SPOTIFY_MIN_RESULTS`     | `3`               | Below this, Spotify path falls back to YT Music |
+| `DAILY_OVERALL_LIMIT`     | `150`             | Overall daily search ceiling (abuse backstop) |
 | `SCRAPE_CONCURRENCY` | `3` | Parallel YouTube Music tabs per scrape |
 
 ## Architecture
@@ -141,6 +145,8 @@ npm run lint          # next lint
 8. **LLM classifier** (`lib/llm/rerankCandidates.ts`) — keep/reject decision per candidate with category (cover, wrong-artist, mix, low-quality-upload, etc.). No scoring; manual hitScore is the final ranker.
 9. **Diversity cap** (genre only) — max 2 tracks per artist.
 10. **Slice to N** — return what the user asked for. Surface a "only N high-confidence tracks found" note when the pool runs short.
+
+When Spotify credentials are configured, the orchestrator queries the Spotify Web API first and falls back to YouTube Music scraping when results are thin. Either path produces the same `Track` shape; the YouTube-match step turns Spotify catalog metadata into downloadable YouTube videos. The fallback is silent — users see new tracks on repeat searches via per-session `seenTracks` (also seeds a future "library" feature).
 
 ### Rate limits
 
