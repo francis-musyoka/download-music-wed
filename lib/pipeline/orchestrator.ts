@@ -10,6 +10,11 @@ import {
 import type { RerankCandidate } from "../llm/types.ts";
 import { applyNoiseFilter } from "./scoring/noiseFilter.ts";
 import { fetchUploadDates } from "./enrich/uploadDates.ts";
+import { createSpotifyClient, spotifyAvailable } from "@/lib/spotify/client";
+import type { SpotifyTrack } from "@/lib/spotify/schemas";
+import { pickBestMatch, type YtCandidate } from "@/lib/pipeline/match/youtubeMatch";
+
+const MIN_RESULTS = Number(process.env.SPOTIFY_MIN_RESULTS ?? 3);
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -599,6 +604,126 @@ async function rankSongYouTube(
     return { tracks };
 }
 
+// ── Spotify-path helpers (shared by rankSong/Artist/Genre Spotify variants) ──
+
+function getJobSessionId(jobId: string): string {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { getJob } = require("../jobs") as typeof import("../jobs");
+    return getJob(jobId)?.sessionId ?? "anonymous";
+}
+
+function spotifyToTrack(sp: SpotifyTrack, yt: YtCandidate): Track {
+    return {
+        title: sp.name,
+        artist: sp.artists[0]?.name ?? "Unknown",
+        duration: yt.durationSec,
+        videoId: yt.videoId,
+        videoUrl: `https://www.youtube.com/watch?v=${yt.videoId}`,
+        channel: yt.channel,
+        source: "spotify",
+        spotifyId: sp.id,
+        popularity: sp.popularity,
+        isrc: sp.external_ids?.isrc,
+        releaseDate: sp.album.release_date,
+    };
+}
+
+async function findMatchingYouTube(sp: SpotifyTrack): Promise<YtCandidate | null> {
+    const artist = sp.artists[0]?.name ?? "";
+    const query = `${artist} ${sp.name}`;
+    const yt = await searchYouTube(query, 5);
+    const candidates: YtCandidate[] = yt.map((r) => ({
+        videoId: r.videoId,
+        title: r.title,
+        channel: r.channel,
+        durationSec: r.duration,
+    }));
+    return pickBestMatch(
+        { id: sp.id, name: sp.name, artist, durationMs: sp.duration_ms },
+        candidates,
+    );
+}
+
+async function spotifyTracksToTracks(
+    selected: SpotifyTrack[],
+    onProgress: OnProgress,
+): Promise<Track[]> {
+    onProgress({
+        stage: "spotify-matching",
+        message: `Matching ${selected.length} tracks to YouTube`,
+    });
+    const out: Track[] = [];
+    for (const sp of selected) {
+        const yt = await findMatchingYouTube(sp);
+        if (!yt) continue;
+        out.push(spotifyToTrack(sp, yt));
+    }
+    return out;
+}
+
+export async function rankSongSpotify(
+    input: { title: string; artist: string },
+    opts: RankOptions = {},
+): Promise<RankResult> {
+    ensureDirs();
+    const onProgress = opts.onProgress ?? noop;
+    const limit = opts.limit ?? 5;
+
+    onProgress({ stage: "understanding-query", message: "Understanding query" });
+    const understood = await understandQuerySafe({
+        mode: "song",
+        input,
+        jobId: opts.jobId,
+    });
+    if (!understood.ok && understood.reason === "rejected") {
+        throw new Error(understood.message);
+    }
+    const intent =
+        understood.ok && understood.data.mode === "song" ? understood.data : null;
+    const canonicalTitle = intent?.canonicalTitle ?? input.title;
+    const canonicalArtist = intent?.canonicalArtist ?? input.artist;
+
+    onProgress({
+        stage: "spotify-querying",
+        message: `Searching Spotify for "${canonicalArtist} - ${canonicalTitle}"`,
+    });
+
+    const client = createSpotifyClient();
+    const q = `track:"${canonicalTitle}" artist:"${canonicalArtist}"`;
+    let matches: SpotifyTrack[];
+    try {
+        matches = await client.searchTracks(q, { limit: Math.max(5, limit) });
+    } catch {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Spotify search failed; falling back to YouTube",
+        });
+        return rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts);
+    }
+
+    if (matches.length === 0) {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "No Spotify match; falling back to YouTube",
+        });
+        return rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts);
+    }
+
+    matches.sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
+    const selected = matches.slice(0, limit);
+    const tracks = await spotifyTracksToTracks(selected, onProgress);
+
+    if (tracks.length < MIN_RESULTS) {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Thin Spotify match; falling back to YouTube",
+        });
+        return rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts);
+    }
+
+    return { tracks };
+}
+
 // ── Download entry points ──
 
 export async function downloadTracks(
@@ -746,5 +871,6 @@ export async function rankSong(
     input: { title: string; artist: string },
     opts: RankOptions = {},
 ): Promise<RankResult> {
+    if (spotifyAvailable()) return rankSongSpotify(input, opts);
     return rankSongYouTube(input, opts);
 }
