@@ -14,8 +14,11 @@ import { createSpotifyClient, spotifyAvailable } from "@/lib/spotify/client";
 import type { SpotifyTrack } from "@/lib/spotify/schemas";
 import { pickBestMatch, type YtCandidate } from "@/lib/pipeline/match/youtubeMatch";
 import { normalizeQueryKey, getSeen, markSeen } from "@/lib/spotify/seenTracks";
+import { rankSpotifyCandidates } from "@/lib/pipeline/scoring/hitScoreV2";
 
 const MIN_RESULTS = Number(process.env.SPOTIFY_MIN_RESULTS ?? 3);
+const MAX_POOL_DEPTH = Number(process.env.SPOTIFY_MAX_POOL_DEPTH ?? 200);
+const POOL_EXPAND_STEP = 50;
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -845,6 +848,161 @@ export async function rankArtistSpotify(
     return { tracks, note };
 }
 
+export async function rankGenreSpotify(
+    genre: string,
+    opts: RankOptions = {},
+): Promise<RankResult> {
+    ensureDirs();
+    const onProgress = opts.onProgress ?? noop;
+    const limit = opts.limit ?? DEFAULT_LIMIT;
+    const sessionId = opts.jobId ? getJobSessionId(opts.jobId) : "anonymous";
+
+    onProgress({ stage: "understanding-query", message: "Understanding query" });
+    const understood = await understandQuerySafe({
+        mode: "genre",
+        input: genre,
+        jobId: opts.jobId,
+    });
+    if (!understood.ok && understood.reason === "rejected") {
+        throw new Error(understood.message);
+    }
+    const intent =
+        understood.ok && understood.data.mode === "genre"
+            ? understood.data
+            : null;
+    const canonicalGenre = intent?.canonicalGenre ?? genre;
+
+    onProgress({
+        stage: "spotify-querying",
+        message: `Discovering ${canonicalGenre} on Spotify`,
+    });
+    const client = createSpotifyClient();
+
+    const queryKey = normalizeQueryKey("genre", canonicalGenre);
+    const seen = getSeen(sessionId, queryKey);
+
+    const pool = new Map<string, SpotifyTrack>();
+    const editorialCount = new Map<string, number>();
+
+    try {
+        const playlists = await client.searchPlaylists(canonicalGenre, {
+            limit: 5,
+        });
+        for (const pl of playlists) {
+            const tracks = await client.getPlaylistTracks(pl.id, { limit: 50 });
+            for (const t of tracks) {
+                if (!pool.has(t.id)) pool.set(t.id, t);
+                editorialCount.set(t.id, (editorialCount.get(t.id) ?? 0) + 1);
+            }
+        }
+    } catch {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Spotify playlists failed; falling back",
+        });
+        return rankGenreYouTube(genre, opts);
+    }
+
+    // Lazy pool expansion via paginated track search
+    async function expandPool(currentDepth: number): Promise<boolean> {
+        if (currentDepth >= MAX_POOL_DEPTH) return false;
+        try {
+            const more = await client.searchTracks(`genre:"${canonicalGenre}"`, {
+                limit: POOL_EXPAND_STEP,
+                offset: currentDepth,
+            });
+            if (more.length === 0) return false;
+            let added = false;
+            for (const t of more) {
+                if (!pool.has(t.id)) {
+                    pool.set(t.id, t);
+                    added = true;
+                }
+            }
+            return added;
+        } catch {
+            return false;
+        }
+    }
+
+    // Loop: filter against seen, expand if too few unseen left
+    const unseenFn = (): SpotifyTrack[] =>
+        Array.from(pool.values()).filter((t) => !seen.has(t.id));
+
+    while (unseenFn().length < limit + 5 && pool.size < MAX_POOL_DEPTH) {
+        const ok = await expandPool(pool.size);
+        if (!ok) break;
+    }
+
+    const unseen = unseenFn();
+    if (unseen.length < MIN_RESULTS) {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Spotify pool exhausted; falling back",
+        });
+        return rankGenreYouTube(genre, opts);
+    }
+
+    // Attach editorial counts as the Track field hitScoreV2 reads
+    const asTracks: Track[] = unseen.map((sp) => ({
+        title: sp.name,
+        artist: sp.artists[0]?.name ?? "Unknown",
+        duration: Math.round(sp.duration_ms / 1000),
+        source: "spotify",
+        spotifyId: sp.id,
+        popularity: sp.popularity ?? 0,
+        isrc: sp.external_ids?.isrc,
+        releaseDate: sp.album?.release_date,
+        editorialPlaylistCount: editorialCount.get(sp.id) ?? 0,
+    }));
+
+    onProgress({ stage: "scoring", message: "Scoring candidates" });
+    const ranked = rankSpotifyCandidates(asTracks);
+
+    // Diversity cap (max 2 per artist) reused from existing pipeline
+    const diverse = applyDiversityCap(ranked);
+    const top = diverse.slice(0, limit);
+
+    // Now match each to YouTube
+    const matchedTracks: Track[] = [];
+    onProgress({
+        stage: "spotify-matching",
+        message: `Matching ${top.length} tracks to YouTube`,
+    });
+    for (const t of top) {
+        if (!t.spotifyId) continue;
+        const sp = pool.get(t.spotifyId);
+        if (!sp) continue;
+        const yt = await findMatchingYouTube(sp);
+        if (!yt) continue;
+        matchedTracks.push({
+            ...t,
+            videoId: yt.videoId,
+            videoUrl: `https://www.youtube.com/watch?v=${yt.videoId}`,
+            channel: yt.channel,
+        });
+    }
+
+    if (matchedTracks.length < MIN_RESULTS) {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Match yield too low; falling back",
+        });
+        return rankGenreYouTube(genre, opts);
+    }
+
+    const matchedIds = matchedTracks
+        .map((t) => t.spotifyId)
+        .filter((id): id is string => !!id);
+    markSeen(sessionId, queryKey, matchedIds);
+
+    let note: string | undefined;
+    if (matchedTracks.length < limit) {
+        note = `Only ${matchedTracks.length} high-confidence ${intent?.displayName ?? canonicalGenre} tracks found.`;
+    }
+    return { tracks: matchedTracks, note };
+}
+
 // ── Download entry points ──
 
 export async function downloadTracks(
@@ -980,6 +1138,7 @@ export async function rankGenre(
     genre: string,
     opts: RankOptions = {},
 ): Promise<RankResult> {
+    if (spotifyAvailable()) return rankGenreSpotify(genre, opts);
     return rankGenreYouTube(genre, opts);
 }
 export async function rankArtist(
