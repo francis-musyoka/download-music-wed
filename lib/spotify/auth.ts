@@ -55,41 +55,58 @@ export interface CircuitBreaker {
     recordSuccess(): void;
 }
 
-const breakerState =
-    g.__downloadMusicSpotifyBreaker ??
-    (g.__downloadMusicSpotifyBreaker = { failureCount: 0, openUntil: 0 });
+interface BreakerState {
+    failureCount: number;
+    openUntil: number;
+}
+
+function makeBreaker(
+    state: BreakerState,
+    threshold: number,
+    openMs: number,
+    now: () => number,
+): CircuitBreaker {
+    return {
+        isOpen(): boolean {
+            if (state.openUntil > now()) return true;
+            if (state.openUntil !== 0 && state.openUntil <= now()) {
+                // half-open: reset for next attempt
+                state.openUntil = 0;
+                state.failureCount = 0;
+            }
+            return false;
+        },
+        recordFailure(): void {
+            state.failureCount += 1;
+            if (state.failureCount >= threshold) {
+                state.openUntil = now() + openMs;
+            }
+        },
+        recordSuccess(): void {
+            state.failureCount = 0;
+            state.openUntil = 0;
+        },
+    };
+}
 
 export function createCircuitBreaker(opts?: {
     threshold?: number;
     openMs?: number;
     now?: () => number;
 }): CircuitBreaker {
-    const threshold = opts?.threshold ?? 5;
-    const openMs = opts?.openMs ?? 60_000;
-    const now = opts?.now ?? Date.now;
-
-    return {
-        isOpen(): boolean {
-            if (breakerState.openUntil > now()) return true;
-            if (breakerState.openUntil !== 0 && breakerState.openUntil <= now()) {
-                // half-open: reset for next attempt
-                breakerState.openUntil = 0;
-                breakerState.failureCount = 0;
-            }
-            return false;
-        },
-        recordFailure(): void {
-            breakerState.failureCount += 1;
-            if (breakerState.failureCount >= threshold) {
-                breakerState.openUntil = now() + openMs;
-            }
-        },
-        recordSuccess(): void {
-            breakerState.failureCount = 0;
-            breakerState.openUntil = 0;
-        },
-    };
+    const state: BreakerState = { failureCount: 0, openUntil: 0 };
+    return makeBreaker(
+        state,
+        opts?.threshold ?? 5,
+        opts?.openMs ?? 60_000,
+        opts?.now ?? Date.now,
+    );
 }
 
-// Shared breaker used by the production client. Tests use createCircuitBreaker directly with an injected `now`.
-export const productionBreaker = createCircuitBreaker();
+// Production singleton — uses globalThis-hoisted state so HMR doesn't reset it
+// (matches the project's hoisting pattern).
+const productionBreakerState =
+    g.__downloadMusicSpotifyBreaker ??
+    (g.__downloadMusicSpotifyBreaker = { failureCount: 0, openUntil: 0 });
+
+export const productionBreaker = makeBreaker(productionBreakerState, 5, 60_000, Date.now);

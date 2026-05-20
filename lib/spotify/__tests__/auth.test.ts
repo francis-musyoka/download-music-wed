@@ -89,3 +89,12 @@ test("circuit breaker half-opens after openMs", () => {
     fakeNow = 100;
     expect(cb.isOpen()).toBe(false);  // window expired
 });
+
+test("createCircuitBreaker instances are independent", () => {
+    const cbA = createCircuitBreaker({ threshold: 2 });
+    const cbB = createCircuitBreaker({ threshold: 2 });
+    cbA.recordFailure();
+    cbA.recordFailure();
+    expect(cbA.isOpen()).toBe(true);
+    expect(cbB.isOpen()).toBe(false);
+});
