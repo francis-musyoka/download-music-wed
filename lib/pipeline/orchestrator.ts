@@ -13,7 +13,7 @@ import { fetchUploadDates } from "./enrich/uploadDates.ts";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const spotifyMod = require("./scrapers/spotify") as {
+const spotifyMod = require("./scrapers/youtube-music") as {
   collectCandidates: (
     genre: string,
     opts?: { extraSearchTerms?: string[] },
