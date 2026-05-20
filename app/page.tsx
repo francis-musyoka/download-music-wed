@@ -12,12 +12,8 @@ import { AudioPlayer, type AudioHandle } from "@/components/audio-player";
 import { DownloadDock, type DockItem } from "@/components/download-dock";
 import { subscribeJob } from "@/lib/client/sse";
 import { toast } from "@/hooks/use-toast";
-import type {
-    DownloadedTrack,
-    Mode,
-    ProgressEvent,
-    Track,
-} from "@/lib/types";
+import type { DownloadedTrack, Mode, ProgressEvent, Track } from "@/lib/types";
+import { ValueProps } from "@/components/value-props";
 
 type Row = Track | DownloadedTrack;
 
@@ -719,6 +715,7 @@ export default function Page() {
                 onDownloadAll={downloadAllZip}
                 onDownloadM3U={downloadM3U}
             />
+            <ValueProps />
             <Footer />
             <AudioPlayer
                 ref={audioRef}
