@@ -55,3 +55,33 @@ test("missing release_date does not crash", () => {
     ]);
     expect(ranked.length).toBe(2);
 });
+
+test("recencyScore handles YYYY-only release_date", () => {
+    // 2024-01-01 is "old" enough to land in the < 365 days range only if test runs
+    // close to today; use a definitively old year and check the score is below the
+    // "<30 days" 1.0 bucket.
+    const ranked = rankSpotifyCandidates([
+        track({ title: "year-only", releaseDate: "2010" }),
+    ]);
+    // Score includes 100% weight on recency for this single-candidate batch.
+    // 2010 is well over 365 days old → recency = 0.1 → weighted contrib = 20 * 0.1 = 2
+    // popularity normalized to 0 (single candidate, min=max), editorial likewise 0.
+    expect(ranked[0].score).toBe(2);
+});
+
+test("recencyScore handles YYYY-MM release_date without falling through to neutral 0.3", () => {
+    // YYYY-MM in the distant past should also land in the >365-days bucket (0.1),
+    // NOT the neutral fallback (0.3). Score should be 50*0 + 30*0 + 20*0.1 = 2.
+    const ranked = rankSpotifyCandidates([
+        track({ title: "month-precision", releaseDate: "2010-03" }),
+    ]);
+    expect(ranked[0].score).toBe(2);
+});
+
+test("recencyScore handles malformed release_date by returning neutral 0.3", () => {
+    const ranked = rankSpotifyCandidates([
+        track({ title: "garbage", releaseDate: "not-a-date" }),
+    ]);
+    // Neutral 0.3 * 20 = 6.
+    expect(ranked[0].score).toBe(6);
+});

@@ -13,10 +13,20 @@ function minMaxNormalize(values: number[]): number[] {
     return values.map((v) => (v - min) / range);
 }
 
+function parseReleaseDate(raw: string): Date {
+    const parts = raw.split("-");
+    const normalized =
+        parts.length === 1 ? `${raw}-01-01` :
+        parts.length === 2 ? `${raw}-01` :
+        raw;
+    return new Date(normalized);
+}
+
 function recencyScore(releaseDate?: string): number {
     if (!releaseDate) return 0.3;
-    // Spotify release_date may be YYYY, YYYY-MM, or YYYY-MM-DD. Date constructor handles all.
-    const d = new Date(releaseDate);
+    // Spotify release_date may be YYYY, YYYY-MM, or YYYY-MM-DD. Normalize to a full ISO date
+    // first because new Date("YYYY-MM") returns Invalid Date on Node 20+.
+    const d = parseReleaseDate(releaseDate);
     if (isNaN(d.getTime())) return 0.3;
     const days = (Date.now() - d.getTime()) / (1000 * 60 * 60 * 24);
     if (days < 30) return 1.0;
