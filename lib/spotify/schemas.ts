@@ -17,10 +17,10 @@ export const SpotifyTrackSchema = z.object({
     artists: z.array(SpotifyArtistSchema).min(1),
     album: AlbumSchema,
     duration_ms: z.number().int().nonnegative(),
-    popularity: z.number().int().min(0).max(100),
+    popularity: z.number().int().min(0).max(100).optional(),
     external_ids: z.object({
         isrc: z.string().optional(),
-    }),
+    }).optional(),
     uri: z.string(),
 });
 export type SpotifyTrack = z.infer<typeof SpotifyTrackSchema>;

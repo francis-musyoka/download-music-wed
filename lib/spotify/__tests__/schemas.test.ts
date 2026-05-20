@@ -19,7 +19,7 @@ test("SpotifyTrackSchema parses a minimal valid track", () => {
     });
     expect(parsed.id).toBe("1Lo5gXFI1NRSAZeFwfNHKa");
     expect(parsed.popularity).toBe(78);
-    expect(parsed.external_ids.isrc).toBe("USUM72101234");
+    expect(parsed.external_ids?.isrc).toBe("USUM72101234");
 });
 
 test("SpotifyTrackSchema accepts a track without ISRC", () => {
@@ -33,7 +33,7 @@ test("SpotifyTrackSchema accepts a track without ISRC", () => {
         external_ids: {},
         uri: "spotify:track:x",
     });
-    expect(parsed.external_ids.isrc).toBeUndefined();
+    expect(parsed.external_ids?.isrc).toBeUndefined();
 });
 
 test("SpotifyTrackSchema rejects an invalid popularity range", () => {
@@ -88,4 +88,18 @@ test("SpotifyArtistTopTracksResponseSchema parses the top-tracks wrapper", () =>
         ],
     });
     expect(parsed.tracks.length).toBe(1);
+});
+
+test("SpotifyTrackSchema accepts a simplified track (no popularity, no external_ids)", () => {
+    const parsed = SpotifyTrackSchema.parse({
+        id: "x",
+        name: "x",
+        artists: [{ id: "a", name: "A" }],
+        album: { id: "y", name: "y", release_date: "2024" },
+        duration_ms: 1000,
+        uri: "spotify:track:x",
+    });
+    expect(parsed.id).toBe("x");
+    expect(parsed.popularity).toBeUndefined();
+    expect(parsed.external_ids).toBeUndefined();
 });
