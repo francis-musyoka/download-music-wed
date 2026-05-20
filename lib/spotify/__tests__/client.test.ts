@@ -1,5 +1,5 @@
 import { test, expect, beforeEach } from "vitest";
-import { createSpotifyClient } from "../client";
+import { createSpotifyClient, spotifyAvailable } from "../client";
 import { spotifyCache } from "../cache";
 
 beforeEach(() => {
@@ -115,4 +115,17 @@ test("caches identical searchTracks calls", async () => {
     await client.searchTracks("same query");
     await client.searchTracks("same query");
     expect(apiCalls).toBe(1);
+});
+
+test("spotifyAvailable returns false when env vars missing", () => {
+    delete process.env.SPOTIFY_CLIENT_ID;
+    delete process.env.SPOTIFY_CLIENT_SECRET;
+    // spotifyAvailable reads process.env at call time, so static import is fine.
+    expect(spotifyAvailable()).toBe(false);
+});
+
+test("spotifyAvailable returns true when env vars present and breaker closed", () => {
+    process.env.SPOTIFY_CLIENT_ID = "id";
+    process.env.SPOTIFY_CLIENT_SECRET = "secret";
+    expect(spotifyAvailable()).toBe(true);
 });

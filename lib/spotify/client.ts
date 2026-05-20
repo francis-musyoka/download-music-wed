@@ -221,3 +221,11 @@ export function createSpotifyClient(opts?: { fetchImpl?: typeof fetch }): Spotif
         },
     };
 }
+
+export function spotifyAvailable(): boolean {
+    if (!process.env.SPOTIFY_CLIENT_ID || !process.env.SPOTIFY_CLIENT_SECRET) {
+        return false;
+    }
+    if (productionBreaker.isOpen()) return false;
+    return true;
+}
