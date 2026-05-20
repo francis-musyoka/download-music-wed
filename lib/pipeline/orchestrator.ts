@@ -13,6 +13,7 @@ import { fetchUploadDates } from "./enrich/uploadDates.ts";
 import { createSpotifyClient, spotifyAvailable } from "@/lib/spotify/client";
 import type { SpotifyTrack } from "@/lib/spotify/schemas";
 import { pickBestMatch, type YtCandidate } from "@/lib/pipeline/match/youtubeMatch";
+import { normalizeQueryKey, getSeen, markSeen } from "@/lib/spotify/seenTracks";
 
 const MIN_RESULTS = Number(process.env.SPOTIFY_MIN_RESULTS ?? 3);
 
@@ -724,6 +725,126 @@ export async function rankSongSpotify(
     return { tracks };
 }
 
+export async function rankArtistSpotify(
+    artist: string,
+    opts: RankOptions = {},
+): Promise<RankResult> {
+    ensureDirs();
+    const onProgress = opts.onProgress ?? noop;
+    const limit = opts.limit ?? 5;
+    const sessionId = opts.jobId ? getJobSessionId(opts.jobId) : "anonymous";
+
+    onProgress({ stage: "understanding-query", message: "Understanding query" });
+    const understood = await understandQuerySafe({
+        mode: "artist",
+        input: artist,
+        jobId: opts.jobId,
+    });
+    if (!understood.ok && understood.reason === "rejected") {
+        throw new Error(understood.message);
+    }
+    const intent =
+        understood.ok && understood.data.mode === "artist"
+            ? understood.data
+            : null;
+    const canonicalArtist = intent?.canonicalArtist ?? artist;
+
+    onProgress({
+        stage: "spotify-querying",
+        message: `Searching Spotify for "${canonicalArtist}"`,
+    });
+    const client = createSpotifyClient();
+
+    let artistEntity: { id: string; name: string } | null;
+    try {
+        artistEntity = await client.searchArtist(canonicalArtist);
+    } catch {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Spotify search failed; falling back",
+        });
+        return rankArtistYouTube(canonicalArtist, opts);
+    }
+    if (!artistEntity) {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Artist not on Spotify; falling back",
+        });
+        return rankArtistYouTube(canonicalArtist, opts);
+    }
+
+    const queryKey = normalizeQueryKey("artist", canonicalArtist);
+    const seen = getSeen(sessionId, queryKey);
+
+    let pool: SpotifyTrack[];
+    try {
+        pool = await client.getArtistTopTracks(artistEntity.id);
+    } catch {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Spotify error; falling back",
+        });
+        return rankArtistYouTube(canonicalArtist, opts);
+    }
+
+    let unseen = pool.filter((t) => !seen.has(t.id));
+
+    if (unseen.length < limit) {
+        // Walk albums for more candidates.
+        try {
+            const albums = await client.getArtistAlbums(artistEntity.id, {
+                limit: 20,
+            });
+            const albumTracks: SpotifyTrack[] = [];
+            for (const alb of albums) {
+                if (albumTracks.length + unseen.length >= limit + 10) break;
+                const t = await client.getAlbumTracks(alb.id);
+                albumTracks.push(...t);
+            }
+            pool = pool.concat(albumTracks);
+            // dedupe pool by id
+            const byId = new Map<string, SpotifyTrack>();
+            for (const t of pool) if (!byId.has(t.id)) byId.set(t.id, t);
+            pool = Array.from(byId.values());
+            unseen = pool.filter((t) => !seen.has(t.id));
+        } catch {
+            // album walk failure: continue with what we have
+        }
+    }
+
+    if (unseen.length < MIN_RESULTS) {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Spotify pool too thin; falling back",
+        });
+        return rankArtistYouTube(canonicalArtist, opts);
+    }
+
+    unseen.sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
+    const selected = unseen.slice(0, limit);
+    const tracks = await spotifyTracksToTracks(selected, onProgress);
+
+    if (tracks.length < MIN_RESULTS) {
+        onProgress({
+            stage: "spotify-fallback-triggered",
+            message: "Could not match enough tracks; falling back",
+        });
+        return rankArtistYouTube(canonicalArtist, opts);
+    }
+
+    // mark only successfully-matched Spotify tracks
+    const matchedIds = tracks
+        .map((t) => t.spotifyId)
+        .filter((id): id is string => !!id);
+    markSeen(sessionId, queryKey, matchedIds);
+
+    let note: string | undefined;
+    if (tracks.length < limit) {
+        note = `Only ${tracks.length} high-confidence tracks found for ${canonicalArtist}.`;
+    }
+    return { tracks, note };
+}
+
 // ── Download entry points ──
 
 export async function downloadTracks(
@@ -865,6 +986,7 @@ export async function rankArtist(
     artist: string,
     opts: RankOptions = {},
 ): Promise<RankResult> {
+    if (spotifyAvailable()) return rankArtistSpotify(artist, opts);
     return rankArtistYouTube(artist, opts);
 }
 export async function rankSong(
