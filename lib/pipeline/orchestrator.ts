@@ -14,6 +14,8 @@ import { findBestTitleMatch } from "./utils/title-match.ts";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
+const log = require("./utils/logger");
+// eslint-disable-next-line @typescript-eslint/no-require-imports
 const spotifyMod = require("./scrapers/spotify") as {
     collectCandidates: (
         genre: string,
@@ -511,18 +513,12 @@ export async function downloadTracks(
         });
 
         let filePath: string | null = null;
-
         if (song.videoUrl) {
             try {
                 filePath = await downloadTrack(song.videoUrl, MUSIC_DIR);
-            } catch {
-                // Fall through to search-and-download.
+            } catch (err) {
+                log.warn(`Download failed for ${song.artist} - ${song.title}: ${(err as Error).message}`);
             }
-        }
-
-        if (!filePath) {
-            const result = await searchAndDownload(song.artist, song.title, MUSIC_DIR);
-            filePath = result ? result.filePath : null;
         }
 
         if (filePath) {
