@@ -18,7 +18,10 @@ import { rankSpotifyCandidates } from "@/lib/pipeline/scoring/hitScoreV2";
 
 const MIN_RESULTS = Number(process.env.SPOTIFY_MIN_RESULTS ?? 3);
 const MAX_POOL_DEPTH = Number(process.env.SPOTIFY_MAX_POOL_DEPTH ?? 200);
-const POOL_EXPAND_STEP = 50;
+// Spotify's /search?type=track endpoint rejects limit > ~10 for Client Credentials apps
+// with "Invalid limit" 400 (despite docs claiming 50 is supported). Keep step small.
+const POOL_EXPAND_STEP = 10;
+const DISABLE_FALLBACK = process.env.SPOTIFY_DISABLE_FALLBACK === "true";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -287,6 +290,7 @@ async function rankGenreYouTube(
     genre: string,
     opts: RankOptions = {},
 ): Promise<RankResult> {
+    throw new Error(`[TEST] YT Music fallback disabled — Spotify path failed for genre "${genre}". Revert lib/pipeline/orchestrator.ts to re-enable.`);
     ensureDirs();
     const onProgress = opts.onProgress ?? noop;
     const limit = opts.limit ?? DEFAULT_LIMIT;
@@ -424,6 +428,7 @@ async function rankArtistYouTube(
     artist: string,
     opts: RankOptions = {},
 ): Promise<RankResult> {
+    throw new Error(`[TEST] YT Music fallback disabled — Spotify path failed for artist "${artist}". Revert lib/pipeline/orchestrator.ts to re-enable.`);
     ensureDirs();
     const onProgress = opts.onProgress ?? noop;
     const limit = opts.limit ?? 5;
@@ -543,6 +548,7 @@ async function rankSongYouTube(
     input: { title: string; artist: string },
     opts: RankOptions = {},
 ): Promise<RankResult> {
+    throw new Error(`[TEST] YT Music fallback disabled — Spotify path failed for song "${input.artist} - ${input.title}". Revert lib/pipeline/orchestrator.ts to re-enable.`);
     ensureDirs();
     const onProgress = opts.onProgress ?? noop;
     const limit = opts.limit ?? 5;
@@ -642,10 +648,14 @@ async function findMatchingYouTube(sp: SpotifyTrack): Promise<YtCandidate | null
         channel: r.channel,
         durationSec: r.duration,
     }));
-    return pickBestMatch(
+    const match = await pickBestMatch(
         { id: sp.id, name: sp.name, artist, durationMs: sp.duration_ms },
         candidates,
     );
+    console.warn(
+        `[findMatchingYouTube] query=${JSON.stringify(query)} (spotify dur=${Math.round(sp.duration_ms / 1000)}s) → ${candidates.length} yt candidates, ${match ? `matched ${match.videoId} (${match.durationSec}s, "${match.title.slice(0, 50)}")` : "NO MATCH"}; candidates: ${candidates.map(c => `${c.title.slice(0, 30)}[${c.durationSec}s/${c.channel.slice(0, 20)}]`).join(" | ")}`,
+    );
+    return match;
 }
 
 async function spotifyTracksToTracks(
@@ -663,6 +673,18 @@ async function spotifyTracksToTracks(
         out.push(spotifyToTrack(sp, yt));
     }
     return out;
+}
+
+async function fallbackOrThrow<T>(
+    reason: string,
+    fallback: () => Promise<T>,
+    onProgress: OnProgress,
+): Promise<T> {
+    if (DISABLE_FALLBACK) {
+        throw new Error(`[Spotify-only mode] ${reason}`);
+    }
+    onProgress({ stage: "spotify-fallback-triggered", message: reason });
+    return fallback();
 }
 
 export async function rankSongSpotify(
@@ -697,20 +719,21 @@ export async function rankSongSpotify(
     let matches: SpotifyTrack[];
     try {
         matches = await client.searchTracks(q, { limit: Math.max(5, limit) });
-    } catch {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Spotify search failed; falling back to YouTube",
-        });
-        return rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts);
+    } catch (err) {
+        console.error("[rankSongSpotify] searchTracks failed:", err);
+        return fallbackOrThrow(
+            "Spotify search failed; falling back to YouTube",
+            () => rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts),
+            onProgress,
+        );
     }
 
     if (matches.length === 0) {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "No Spotify match; falling back to YouTube",
-        });
-        return rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts);
+        return fallbackOrThrow(
+            "No Spotify match; falling back to YouTube",
+            () => rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts),
+            onProgress,
+        );
     }
 
     matches.sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
@@ -718,11 +741,11 @@ export async function rankSongSpotify(
     const tracks = await spotifyTracksToTracks(selected, onProgress);
 
     if (tracks.length < MIN_RESULTS) {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Thin Spotify match; falling back to YouTube",
-        });
-        return rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts);
+        return fallbackOrThrow(
+            "Thin Spotify match; falling back to YouTube",
+            () => rankSongYouTube({ title: canonicalTitle, artist: canonicalArtist }, opts),
+            onProgress,
+        );
     }
 
     return { tracks };
@@ -758,69 +781,59 @@ export async function rankArtistSpotify(
     });
     const client = createSpotifyClient();
 
-    let artistEntity: { id: string; name: string } | null;
-    try {
-        artistEntity = await client.searchArtist(canonicalArtist);
-    } catch {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Spotify search failed; falling back",
-        });
-        return rankArtistYouTube(canonicalArtist, opts);
-    }
-    if (!artistEntity) {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Artist not on Spotify; falling back",
-        });
-        return rankArtistYouTube(canonicalArtist, opts);
-    }
-
+    // Spotify's Nov 2024 policy change broke /artists/{id}/top-tracks and
+    // /artists/{id}/albums under Client Credentials (both 403). Replacement:
+    // paginated search with `artist:"..."` filter, then keep only tracks where
+    // the first artist matches (collabs where the artist is featured get dropped).
     const queryKey = normalizeQueryKey("artist", canonicalArtist);
     const seen = getSeen(sessionId, queryKey);
 
-    let pool: SpotifyTrack[];
-    try {
-        pool = await client.getArtistTopTracks(artistEntity.id);
-    } catch {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Spotify error; falling back",
-        });
-        return rankArtistYouTube(canonicalArtist, opts);
-    }
+    const pool = new Map<string, SpotifyTrack>();
+    const artistLower = canonicalArtist.toLowerCase();
 
-    let unseen = pool.filter((t) => !seen.has(t.id));
-
-    if (unseen.length < limit) {
-        // Walk albums for more candidates.
+    async function expandArtistPool(offset: number): Promise<boolean> {
         try {
-            const albums = await client.getArtistAlbums(artistEntity.id, {
-                limit: 20,
+            const more = await client.searchTracks(`artist:"${canonicalArtist}"`, {
+                limit: 10,
+                offset,
             });
-            const albumTracks: SpotifyTrack[] = [];
-            for (const alb of albums) {
-                if (albumTracks.length + unseen.length >= limit + 10) break;
-                const t = await client.getAlbumTracks(alb.id);
-                albumTracks.push(...t);
+            console.warn(`[rankArtistSpotify] offset=${offset} returned ${more.length} tracks; primary-artists: ${more.map(t => t.artists[0]?.name).join(', ')}`);
+            if (more.length === 0) return false;
+            let added = 0;
+            for (const t of more) {
+                if (pool.has(t.id)) continue;
+                // Keep only tracks where the artist is the PRIMARY (first) artist.
+                if (t.artists[0]?.name?.toLowerCase() !== artistLower) continue;
+                pool.set(t.id, t);
+                added++;
             }
-            pool = pool.concat(albumTracks);
-            // dedupe pool by id
-            const byId = new Map<string, SpotifyTrack>();
-            for (const t of pool) if (!byId.has(t.id)) byId.set(t.id, t);
-            pool = Array.from(byId.values());
-            unseen = pool.filter((t) => !seen.has(t.id));
-        } catch {
-            // album walk failure: continue with what we have
+            console.warn(`[rankArtistSpotify] offset=${offset} kept ${added}; pool=${pool.size}`);
+            // Treat "returned non-empty" as ok so we don't exit early when the
+            // primary-artist filter drops everything — keep paginating.
+            return more.length > 0;
+        } catch (err) {
+            console.error(`[rankArtistSpotify] expandArtistPool offset=${offset} failed:`, err instanceof Error ? err.message : err);
+            return false;
         }
     }
 
+    const unseenFn = (): SpotifyTrack[] =>
+        Array.from(pool.values()).filter((t) => !seen.has(t.id));
+
+    // Cap at 50 (Spotify's /search?type=track total cap is small for CC apps).
+    for (let offset = 0; offset < 50 && unseenFn().length < limit + 3; offset += 10) {
+        const ok = await expandArtistPool(offset);
+        if (!ok) break;
+    }
+
+    const unseen = unseenFn();
+
     if (unseen.length < MIN_RESULTS) {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Spotify pool too thin; falling back",
-        });
-        return rankArtistYouTube(canonicalArtist, opts);
+        return fallbackOrThrow(
+            "Spotify pool too thin; falling back",
+            () => rankArtistYouTube(canonicalArtist, opts),
+            onProgress,
+        );
     }
 
     unseen.sort((a, b) => (b.popularity ?? 0) - (a.popularity ?? 0));
@@ -828,11 +841,11 @@ export async function rankArtistSpotify(
     const tracks = await spotifyTracksToTracks(selected, onProgress);
 
     if (tracks.length < MIN_RESULTS) {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Could not match enough tracks; falling back",
-        });
-        return rankArtistYouTube(canonicalArtist, opts);
+        return fallbackOrThrow(
+            "Could not match enough tracks; falling back",
+            () => rankArtistYouTube(canonicalArtist, opts),
+            onProgress,
+        );
     }
 
     // mark only successfully-matched Spotify tracks
@@ -884,33 +897,41 @@ export async function rankGenreSpotify(
     const pool = new Map<string, SpotifyTrack>();
     const editorialCount = new Map<string, number>();
 
+    // Editorial-playlist phase is soft: Spotify's Nov 2024 policy change forbids
+    // Client Credentials apps from fetching tracks of most user playlists (returns
+    // 403). We try, swallow per-playlist failures, and let expandPool fill the pool
+    // via the searchTracks `genre:"..."` query which still works under CC.
     try {
         const playlists = await client.searchPlaylists(canonicalGenre, {
             limit: 5,
         });
         for (const pl of playlists) {
-            const tracks = await client.getPlaylistTracks(pl.id, { limit: 50 });
-            for (const t of tracks) {
-                if (!pool.has(t.id)) pool.set(t.id, t);
-                editorialCount.set(t.id, (editorialCount.get(t.id) ?? 0) + 1);
+            try {
+                const tracks = await client.getPlaylistTracks(pl.id, { limit: 50 });
+                for (const t of tracks) {
+                    if (!pool.has(t.id)) pool.set(t.id, t);
+                    editorialCount.set(t.id, (editorialCount.get(t.id) ?? 0) + 1);
+                }
+            } catch (err) {
+                console.warn(`[rankGenreSpotify] skip playlist ${pl.id} (${pl.name}):`, err instanceof Error ? err.message : err);
             }
         }
-    } catch {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Spotify playlists failed; falling back",
-        });
-        return rankGenreYouTube(genre, opts);
+    } catch (err) {
+        console.warn("[rankGenreSpotify] searchPlaylists failed, continuing with searchTracks only:", err instanceof Error ? err.message : err);
     }
 
-    // Lazy pool expansion via paginated track search
+    // Lazy pool expansion via paginated track search. Plain-text query because
+    // Spotify's `genre:"..."` filter only supports a fixed seed-genre list and
+    // returns 400 for most user genres (e.g. "afrobeats" — only "afrobeat" works).
     async function expandPool(currentDepth: number): Promise<boolean> {
         if (currentDepth >= MAX_POOL_DEPTH) return false;
+        console.warn(`[rankGenreSpotify] expandPool calling searchTracks(q=${JSON.stringify(canonicalGenre)}, offset=${currentDepth})`);
         try {
-            const more = await client.searchTracks(`genre:"${canonicalGenre}"`, {
+            const more = await client.searchTracks(canonicalGenre, {
                 limit: POOL_EXPAND_STEP,
                 offset: currentDepth,
             });
+            console.warn(`[rankGenreSpotify] expandPool returned ${more.length} tracks`);
             if (more.length === 0) return false;
             let added = false;
             for (const t of more) {
@@ -920,7 +941,8 @@ export async function rankGenreSpotify(
                 }
             }
             return added;
-        } catch {
+        } catch (err) {
+            console.error("[rankGenreSpotify] expandPool failed:", err);
             return false;
         }
     }
@@ -936,11 +958,11 @@ export async function rankGenreSpotify(
 
     const unseen = unseenFn();
     if (unseen.length < MIN_RESULTS) {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Spotify pool exhausted; falling back",
-        });
-        return rankGenreYouTube(genre, opts);
+        return fallbackOrThrow(
+            "Spotify pool exhausted; falling back",
+            () => rankGenreYouTube(genre, opts),
+            onProgress,
+        );
     }
 
     // Attach editorial counts as the Track field hitScoreV2 reads
@@ -984,11 +1006,11 @@ export async function rankGenreSpotify(
     }
 
     if (matchedTracks.length < MIN_RESULTS) {
-        onProgress({
-            stage: "spotify-fallback-triggered",
-            message: "Match yield too low; falling back",
-        });
-        return rankGenreYouTube(genre, opts);
+        return fallbackOrThrow(
+            "Match yield too low; falling back",
+            () => rankGenreYouTube(genre, opts),
+            onProgress,
+        );
     }
 
     const matchedIds = matchedTracks
@@ -1139,6 +1161,9 @@ export async function rankGenre(
     opts: RankOptions = {},
 ): Promise<RankResult> {
     if (spotifyAvailable()) return rankGenreSpotify(genre, opts);
+    if (DISABLE_FALLBACK) {
+        throw new Error("[Spotify-only mode] Spotify unavailable; fallback disabled. Check SPOTIFY_CLIENT_ID/SECRET and circuit-breaker state.");
+    }
     return rankGenreYouTube(genre, opts);
 }
 export async function rankArtist(
@@ -1146,6 +1171,9 @@ export async function rankArtist(
     opts: RankOptions = {},
 ): Promise<RankResult> {
     if (spotifyAvailable()) return rankArtistSpotify(artist, opts);
+    if (DISABLE_FALLBACK) {
+        throw new Error("[Spotify-only mode] Spotify unavailable; fallback disabled. Check SPOTIFY_CLIENT_ID/SECRET and circuit-breaker state.");
+    }
     return rankArtistYouTube(artist, opts);
 }
 export async function rankSong(
@@ -1153,5 +1181,8 @@ export async function rankSong(
     opts: RankOptions = {},
 ): Promise<RankResult> {
     if (spotifyAvailable()) return rankSongSpotify(input, opts);
+    if (DISABLE_FALLBACK) {
+        throw new Error("[Spotify-only mode] Spotify unavailable; fallback disabled. Check SPOTIFY_CLIENT_ID/SECRET and circuit-breaker state.");
+    }
     return rankSongYouTube(input, opts);
 }

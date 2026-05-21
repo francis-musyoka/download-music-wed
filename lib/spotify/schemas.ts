@@ -33,7 +33,8 @@ export const SpotifyPlaylistSchema = z.object({
         id: z.string(),
         display_name: z.string().nullable().default(""),
     }),
-    tracks: z.object({ total: z.number().int().nonnegative() }),
+    // Spotify's playlist-search response omits `tracks` for some items — keep optional.
+    tracks: z.object({ total: z.number().int().nonnegative() }).optional(),
 });
 export type SpotifyPlaylist = z.infer<typeof SpotifyPlaylistSchema>;
 
@@ -59,7 +60,8 @@ export const SpotifySearchArtistsResponseSchema = z.object({
 
 export const SpotifySearchPlaylistsResponseSchema = z.object({
     playlists: z.object({
-        items: z.array(SpotifyPlaylistSchema),
+        // Spotify returns null entries in some search results (deleted/region-locked).
+        items: z.array(SpotifyPlaylistSchema.nullable()),
         total: z.number().int().nonnegative(),
     }),
 });

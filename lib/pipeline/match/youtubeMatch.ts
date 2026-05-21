@@ -1,6 +1,13 @@
-const DURATION_TOLERANCE_SEC = 3;
-const ACCEPT_THRESHOLD = 0.7;
-const REJECT_THRESHOLD = 0.4;
+// 10s tolerance is forgiving enough for YT album-edits vs Spotify single
+// (e.g. "Wizkid - Ojuelegba" 216s on Spotify, 224s on YT).
+const DURATION_TOLERANCE_SEC = 10;
+// Lowered from 0.7 → 0.5: an exact duration match (the hard gate above) is already
+// a strong signal; the threshold above that filters on title/artist token overlap.
+// Real-world YT channels for collaborations carry the FEATURED artist's brand
+// (e.g. "ASAKE and StarBoy TV" for a Wizkid x Asake track) which costs the channel
+// boost and pushes legit matches into the 0.5-0.7 band.
+const ACCEPT_THRESHOLD = 0.5;
+const REJECT_THRESHOLD = 0.3;
 
 export interface SpotifyMatchTarget {
     id: string;
@@ -16,13 +23,23 @@ export interface YtCandidate {
     durationSec: number;
 }
 
+// Tokens we strip before similarity scoring — they appear inconsistently between
+// Spotify track names ("Essence (feat. Tems)") and YouTube titles ("Essence ft. Tems"
+// or just "Essence"), and they over-weight matches that have them in common.
+const FEATURED_QUALIFIER_RE = /\((?:feat|ft|with|featuring)\.?\s[^)]*\)|(?:\bfeat\.?|\bft\.?|\bfeaturing|\bwith)\s+[^-—|]+/gi;
+const NOISE_TOKENS = new Set([
+    "official", "video", "audio", "lyrics", "lyric", "hd", "4k",
+    "the", "a", "an", "and", "of", "to", "in", "on",
+]);
+
 function tokenSet(s: string): Set<string> {
+    const cleaned = s.replace(FEATURED_QUALIFIER_RE, " ");
     return new Set(
-        s
+        cleaned
             .toLowerCase()
             .replace(/[^\w\s]/g, " ")
             .split(/\s+/)
-            .filter(Boolean),
+            .filter((t) => t.length > 0 && !NOISE_TOKENS.has(t)),
     );
 }
 

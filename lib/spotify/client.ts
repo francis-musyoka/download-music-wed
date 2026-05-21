@@ -23,6 +23,22 @@ const TTL = {
     playlistTracks: Number(process.env.SPOTIFY_TTL_PLAYLIST_TRACKS_MS ?? 21_600_000),
 };
 
+/**
+ * Spotify HTTP errors that are working-as-designed client-side rejections,
+ * not service-health signals — the circuit breaker should not count them.
+ *   429: rate-limited (we're sending too fast)
+ *   403: forbidden endpoint (e.g. user-playlist tracks under Client Credentials post-Nov 2024)
+ *   404: not found (caller's responsibility)
+ */
+function isClientRejection(err: unknown): boolean {
+    if (!(err instanceof Error)) return false;
+    return (
+        err.message.startsWith("Spotify 429") ||
+        err.message.startsWith("Spotify 403") ||
+        err.message.startsWith("Spotify 404")
+    );
+}
+
 export interface SpotifyClient {
     searchTracks(
         q: string,
@@ -96,6 +112,8 @@ export function createSpotifyClient(opts?: { fetchImpl?: typeof fetch }): Spotif
                 }
 
                 if (!res.ok) {
+                    const bodyText = await res.text().catch(() => "<unreadable>");
+                    console.error(`[Spotify ${res.status}] ${path} → ${bodyText.slice(0, 500)}`);
                     throw new Error(`Spotify ${res.status}`);
                 }
 
@@ -118,16 +136,17 @@ export function createSpotifyClient(opts?: { fetchImpl?: typeof fetch }): Spotif
                     productionBreaker.recordSuccess();
                     return result;
                 } catch (err2) {
-                    // Only count 5xx failures (not 429) toward the breaker.
-                    if (!(err2 instanceof Error && err2.message.startsWith("Spotify 429"))) {
+                    // Don't count expected client-side rejections (429 throttle, 403/404 access)
+                    // toward the breaker — those are working-as-designed, not service health.
+                    if (!isClientRejection(err2)) {
                         productionBreaker.recordFailure();
                     }
                     throw err2;
                 }
             }
-            // 429 is a client-side throttle signal, not a service-health signal —
-            // don't penalise the breaker.
-            if (err instanceof Error && err.message.startsWith("Spotify 429")) {
+            // 429 (throttle), 403 (forbidden endpoint), 404 (not found) are client-side
+            // rejections, not service-health signals — don't penalise the breaker.
+            if (isClientRejection(err)) {
                 throw err;
             }
             productionBreaker.recordFailure();
@@ -137,10 +156,13 @@ export function createSpotifyClient(opts?: { fetchImpl?: typeof fetch }): Spotif
 
     return {
         async searchTracks(q, options) {
+            // Spotify's /search?type=track rejects limit > ~10 for Client Credentials
+            // apps with "Invalid limit" 400 (docs claim 50 max). Cap to 10.
+            const safeLimit = Math.min(options?.limit ?? 10, 10);
             const params = {
                 q,
                 type: "track",
-                limit: options?.limit ?? 50,
+                limit: safeLimit,
                 offset: options?.offset ?? 0,
                 ...(options?.market ? { market: options.market } : {}),
             };
@@ -214,7 +236,9 @@ export function createSpotifyClient(opts?: { fetchImpl?: typeof fetch }): Spotif
                 TTL.genre,
                 (b) => SpotifySearchPlaylistsResponseSchema.parse(b),
             );
-            return (body as { playlists: { items: SpotifyPlaylist[] } }).playlists.items;
+            // Spotify returns null entries in playlist search; filter them out.
+            const items = (body as { playlists: { items: (SpotifyPlaylist | null)[] } }).playlists.items;
+            return items.filter((p): p is SpotifyPlaylist => p !== null);
         },
 
         async getPlaylistTracks(playlistId, options) {
