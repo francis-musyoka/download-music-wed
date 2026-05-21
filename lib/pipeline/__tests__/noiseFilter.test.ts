@@ -92,4 +92,73 @@ describe("applyNoiseFilter", () => {
         expect(a.length).toBe(0);
         expect(b.length).toBe(0);
     });
+
+    test("drops 'mixtape' titles", () => {
+        const out = applyNoiseFilter(
+            [track({ title: "Amapiano 2026 Mixtape Vol.8", artist: "Dj Twise", duration: 4800 })],
+            "genre",
+        );
+        expect(out.length).toBe(0);
+    });
+
+    test("drops 'continuous mix' titles", () => {
+        const out = applyNoiseFilter(
+            [track({ title: "Motown Workout (Continuous Mix)", artist: "Various Artists", duration: 3000 })],
+            "genre",
+        );
+        expect(out.length).toBe(0);
+    });
+
+    test("drops 'full album' titles", () => {
+        const out = applyNoiseFilter(
+            [track({ title: "Elvis Presley Greatest Hits Full Album", artist: "Elvis Presley", duration: 3600 })],
+            "genre",
+        );
+        expect(out.length).toBe(0);
+    });
+
+    test("drops 'full mix' titles", () => {
+        const out = applyNoiseFilter(
+            [track({ title: "Amapiano 2026 Mix 0.7 (Full Mix)", artist: "Some DJ", duration: 2500 })],
+            "genre",
+        );
+        expect(out.length).toBe(0);
+    });
+
+    test("drops 'greatest hits' titles", () => {
+        const out = applyNoiseFilter(
+            [track({ title: "Best Country Greatest Hits", artist: "Various", duration: 4000 })],
+            "genre",
+        );
+        expect(out.length).toBe(0);
+    });
+
+    test("drops 'wiz party'-style party mixes", () => {
+        const out = applyNoiseFilter(
+            [track({ title: "Best of Wizkid (Wiz Party)", artist: "Dj Weezy", duration: 5500 })],
+            "genre",
+        );
+        expect(out.length).toBe(0);
+    });
+
+    test("drops 'party mix' / 'party mixtape' titles", () => {
+        const out1 = applyNoiseFilter(
+            [track({ title: "Naija Party Mix 2026", artist: "Dj X", duration: 3000 })],
+            "genre",
+        );
+        const out2 = applyNoiseFilter(
+            [track({ title: "Afrobeats Party Mixtape", artist: "Dj Y", duration: 2400 })],
+            "genre",
+        );
+        expect(out1.length).toBe(0);
+        expect(out2.length).toBe(0);
+    });
+
+    test("keeps 'New Rules' (incidentally contains 'new')", () => {
+        const out = applyNoiseFilter(
+            [track({ title: "New Rules", artist: "Dua Lipa", duration: 209 })],
+            "genre",
+        );
+        expect(out.length).toBe(1);
+    });
 });
