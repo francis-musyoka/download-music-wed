@@ -10,6 +10,7 @@ import {
 import type { RerankCandidate } from "../llm/types.ts";
 import { applyNoiseFilter } from "./scoring/noiseFilter.ts";
 import { fetchUploadDates } from "./enrich/uploadDates.ts";
+import { findBestTitleMatch } from "./utils/title-match.ts";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -431,72 +432,58 @@ export async function rankArtist(
 }
 
 export async function rankSong(
-    input: { title: string; artist: string },
-    opts: RankOptions = {},
+  input: { title: string; artist: string },
+  opts: RankOptions = {},
 ): Promise<RankResult> {
-    ensureDirs();
-    const onProgress = opts.onProgress ?? noop;
-    const limit = opts.limit ?? 5;
+  ensureDirs();
+  const onProgress = opts.onProgress ?? noop;
+  const limit = opts.limit ?? 5;
 
-    onProgress({ stage: "understanding-query", message: "Understanding query" });
-    const understood = await understandQuerySafe({
-        mode: "song",
-        input,
-        jobId: opts.jobId,
+  onProgress({
+    stage: "scraping-spotify",
+    message: `Searching for "${input.artist} - ${input.title}"`,
+  });
+
+  // Two parallel calls:
+  //   A — exact "artist title" search → look for title-match pin
+  //   B — artist-only search → fill 4 more by hit-score
+  const [callA, callB] = await Promise.all([
+    searchSongs(`${input.artist} ${input.title}`, 20),
+    searchSongs(input.artist, 20),
+  ]);
+
+  // Pin candidate from A
+  const pinned = findBestTitleMatch(
+    callA as (Track & { artists?: string[] })[],
+    input.artist,
+    input.title,
+  );
+
+  // Fill from B (wide artist match, noise filter, hit-score, exclude pinned)
+  const aLow = input.artist.toLowerCase().trim();
+  type WithArtists = Track & { artists?: string[] };
+  const matchedB = (callB as WithArtists[]).filter((t) => {
+    const list = t.artists ?? [t.artist];
+    return list.some((a) => {
+      const x = (a || "").toLowerCase().trim();
+      return x && (x === aLow || x.includes(aLow) || aLow.includes(x));
     });
-    if (!understood.ok && understood.reason === "rejected") {
-        throw new Error(understood.message);
-    }
-    const intent =
-        understood.ok && understood.data.mode === "song" ? understood.data : null;
-    const canonicalTitle = intent?.canonicalTitle ?? input.title;
-    const canonicalArtist = intent?.canonicalArtist ?? input.artist;
+  });
+  const cleanedB = applyNoiseFilter(matchedB, "song");
+  const rankedB = rankCandidates(cleanedB);
+  const pinId = pinned?.videoId;
+  const fillers = rankedB.filter((t) => t.videoId !== pinId).slice(0, limit - (pinned ? 1 : 0));
 
-    if (!understood.ok) {
-        onProgress({
-            stage: "llm-degraded",
-            degradeStep: "understand",
-            message: understood.message,
-        });
-    }
+  const tracks: Track[] = pinned ? [pinned, ...fillers] : rankedB.slice(0, limit);
+  let note: string | undefined;
+  if (!pinned) {
+    note = `Exact track not found; here are top tracks by ${input.artist}.`;
+  }
+  if (tracks.length === 0) {
+    throw new Error(`No results found for "${input.artist} - ${input.title}".`);
+  }
 
-    const query = `${canonicalArtist} ${canonicalTitle} official audio`;
-    onProgress({
-        stage: "scraping-spotify",
-        message: `Searching for "${canonicalArtist} - ${canonicalTitle}"`,
-    });
-
-    const results = await searchYouTube(query, Math.max(5, limit));
-    const valid = results.filter((r) => {
-        if (r.duration > MAX_DURATION || r.duration < MIN_DURATION) return false;
-        if (isMixOrCompilation(r.title)) return false;
-        return true;
-    });
-
-    if (valid.length === 0) {
-        throw new Error(`No results found for "${canonicalArtist} - ${canonicalTitle}".`);
-    }
-
-    const filtered = applyNoiseFilter(
-        valid.map((r) => ({
-            videoId: r.videoId,
-            title: r.title,
-            artist: r.channel || canonicalArtist,
-            duration: r.duration,
-            views: r.views,
-            uploadDate: r.uploadDate ?? undefined,
-            videoUrl: r.url,
-            source: "youtube",
-        })),
-        "song",
-    );
-    if (filtered.length === 0) {
-        throw new Error(`No non-noise results for "${canonicalArtist} - ${canonicalTitle}".`);
-    }
-    filtered.sort((a, b) => (b.views ?? 0) - (a.views ?? 0));
-    const tracks: Track[] = filtered.slice(0, limit);
-
-    return { tracks };
+  return { tracks, note };
 }
 
 // ── Download entry points ──
