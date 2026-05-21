@@ -388,114 +388,46 @@ export async function rankGenre(
 }
 
 export async function rankArtist(
-    artist: string,
-    opts: RankOptions = {},
+  artist: string,
+  opts: RankOptions = {},
 ): Promise<RankResult> {
-    ensureDirs();
-    const onProgress = opts.onProgress ?? noop;
-    const limit = opts.limit ?? 5;
+  ensureDirs();
+  const onProgress = opts.onProgress ?? noop;
+  const limit = opts.limit ?? 10;
 
-    onProgress({ stage: "understanding-query", message: "Understanding query" });
-    const understood = await understandQuerySafe({
-        mode: "artist",
-        input: artist,
-        jobId: opts.jobId,
+  onProgress({
+    stage: "scraping-spotify",
+    message: `Searching YT Music for "${artist}"`,
+  });
+  const raw = await searchSongs(artist, 200);
+  if (raw.length === 0) {
+    throw new Error(`No songs found for artist "${artist}".`);
+  }
+
+  // Wide artist match — keep if normalize(artist) appears in any of
+  // candidate.artists[]. Features count as the artist's tracks too.
+  const aLow = artist.toLowerCase().trim();
+  type WithArtists = Track & { artists?: string[] };
+  const matched = (raw as WithArtists[]).filter((t) => {
+    const list = t.artists ?? [t.artist];
+    return list.some((a) => {
+      const x = (a || "").toLowerCase().trim();
+      return x && (x === aLow || x.includes(aLow) || aLow.includes(x));
     });
-    if (!understood.ok && understood.reason === "rejected") {
-        throw new Error(understood.message);
-    }
-    const intent =
-        understood.ok && understood.data.mode === "artist" ? understood.data : null;
-    const effectiveArtist = intent?.canonicalArtist ?? artist;
-    if (!understood.ok) {
-        onProgress({
-            stage: "llm-degraded",
-            degradeStep: "understand",
-            message: understood.message,
-        });
-    }
+  });
 
-    onProgress({
-        stage: "scraping-spotify",
-        message: `Collecting top songs for "${effectiveArtist}"`,
-    });
-    let candidates = await collectArtistCandidates(effectiveArtist);
-    if (candidates.length === 0) {
-        onProgress({
-            stage: "scraping-spotify",
-            message: "First crate came up empty — widening the search",
-        });
-        candidates = await searchArtistFallback(
-            effectiveArtist,
-            Math.max(20, limit * 4),
-        );
-    }
-    if (candidates.length === 0) {
-        throw new Error(`No songs found for artist "${effectiveArtist}".`);
-    }
+  let candidates: Track[] = applyNoiseFilter(matched, "artist");
+  candidates = dedupeAgainstLibrary(candidates);
+  if (candidates.length === 0) return { tracks: [] };
 
-    await fetchUploadDates(candidates, { onProgress });
-    candidates = applyNoiseFilter(candidates, "artist");
-    candidates = dedupeAgainstLibrary(candidates);
-    if (candidates.length === 0) {
-        return { tracks: [] };
-    }
-
-    onProgress({ stage: "scoring", message: "Scoring and ranking" });
-    const ranked = rankCandidates(candidates);
-
-    const LLM_INPUT_CAP = 100;
-    const llmInput = ranked.slice(0, LLM_INPUT_CAP);
-
-    let kept: Track[] = llmInput;
-    if (intent) {
-        onProgress({
-            stage: "llm-reranking",
-            message: `Classifying ${llmInput.length} candidates`,
-        });
-        const result = await rerankCandidatesSafe({
-            mode: "artist",
-            intent,
-            candidates: llmInput.map<RerankCandidate>((c) => ({
-                id: c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`,
-                title: c.title,
-                artist: c.artist,
-                channel: c.channel,
-                durationSec: c.duration,
-            })),
-            jobId: opts.jobId,
-        });
-
-        if (result.ok) {
-            const keepIds = new Set(result.kept.map((d) => d.id));
-            const idOf = (c: Track) =>
-                c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`;
-            kept = llmInput.filter((c) => keepIds.has(idOf(c)));
-            onProgress({
-                stage: "llm-reranked",
-                message: "Classification complete",
-                rerankSummary: {
-                    kept: result.kept.length,
-                    dropped: result.dropped.length,
-                    rejectCategories: summarizeRejectCategories(result.dropped),
-                },
-            });
-        } else {
-            onProgress({
-                stage: "llm-degraded",
-                degradeStep: "rerank",
-                message: result.reason,
-            });
-            kept = llmInput;
-        }
-    }
-
-    const selected = kept.slice(0, limit);
-    let note: string | undefined;
-    if (intent && selected.length < limit) {
-        note = `Only ${selected.length} high-confidence tracks found for ${intent.canonicalArtist}.`;
-    }
-    return { tracks: selected, note };
+  onProgress({ stage: "scoring", message: "Ranking" });
+  const ranked = rankCandidates(candidates);
+  const selected = ranked.slice(0, limit);
+  let note: string | undefined;
+  if (selected.length < limit) {
+    note = `Only ${selected.length} tracks found for ${artist}.`;
+  }
+  return { tracks: selected, note };
 }
 
 export async function rankSong(
