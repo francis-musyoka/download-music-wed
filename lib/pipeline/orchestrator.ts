@@ -180,9 +180,28 @@ export async function rankGenre(
         onProgress({ stage: "scoring", message: "Ranking candidates" });
         const ranked = rankCandidates(candidates);
 
+        // ── Dedupe by (title, primary-artist) ──
+        // YT Music returns multiple uploads of the same song (topic channel +
+        // auto-generated). Walk the ranked list top-down and keep the first
+        // (highest-scored) occurrence of each {title × primary-artist} pair.
+        // Using primary-artist as part of the key lets two different artists'
+        // same-titled songs both survive (e.g. Drake's "Forever" and Bruno
+        // Mars's "Forever") while still deduping a single artist's twin uploads.
+        const seenTitleArtist = new Set<string>();
+        const dedupedRanked: Track[] = [];
+        for (const r of ranked) {
+                const keyTitle = normaliseForMatch(r.title || "");
+                const keyArtist = normaliseForMatch(r.artist || "");
+                const key = `${keyTitle}__${keyArtist}`;
+                if (keyTitle && !seenTitleArtist.has(key)) {
+                        seenTitleArtist.add(key);
+                        dedupedRanked.push(r);
+                }
+        }
+
         // ── LLM rerank on top 50 ──
         const LLM_INPUT_CAP = 50;
-        const llmInput = ranked.slice(0, LLM_INPUT_CAP);
+        const llmInput = dedupedRanked.slice(0, LLM_INPUT_CAP);
         toLlm = llmInput.length;
 
         onProgress({
@@ -353,16 +372,12 @@ export async function rankSong(
         input.title,
     );
 
-    // Fill from B (wide artist match, noise filter, hit-score, exclude pinned)
-    const aLow = input.artist.toLowerCase().trim();
+    // Fill from B — strict primary-artist match with Levenshtein fuzzy fallback,
+    // same helper used by rankArtist. Fillers must be tracks where the searched
+    // artist is the PRIMARY (artists[0]), not just a feature, so we don't fill
+    // "Adele - Hello"'s slots with "Random Artist - Some Song (feat. Adele)".
     type WithArtists = Track & { artists?: string[] };
-    const matchedB = (callB as WithArtists[]).filter((t) => {
-        const list = t.artists ?? [t.artist];
-        return list.some((a) => {
-            const x = (a || "").toLowerCase().trim();
-            return x && (x === aLow || x.includes(aLow) || aLow.includes(x));
-        });
-    });
+    const matchedB = (callB as WithArtists[]).filter((t) => matchesPrimaryArtist(t, input.artist));
     const cleanedB = applyNoiseFilter(matchedB, "song");
     const rankedB = rankCandidates(cleanedB);
     const pinId = pinned?.videoId;

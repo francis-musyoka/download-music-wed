@@ -89,7 +89,11 @@ def cmd_search(argv):
 
     yt = YTMusic()
     try:
-        results = yt.search(query, filter=filter_, limit=limit)
+        # ignore_spelling=False (the ytmusicapi default, named confusingly):
+        # "don't ignore spelling" = let YTM autocorrect the query. We want this
+        # so misspelled artist/title queries still resolve. Made explicit here
+        # so readers don't have to know the lib's default.
+        results = yt.search(query, filter=filter_, limit=limit, ignore_spelling=False)
     except Exception:
         traceback.print_exc(file=sys.stderr)
         sys.exit(3)
