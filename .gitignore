@@ -40,5 +40,5 @@ TODO.md
 previewImages
 scripts
 
-# Python venv used by scripts/ytmusic_search.py
+# Python venv used by lib/pipeline/scrapers/ytmusic_search.py
 .venv-ytmusic/
