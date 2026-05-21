@@ -1,0 +1,27 @@
+# /etc/cron.d/wax — scheduled maintenance for the Wax/Musicography app.
+# See lib/cron/README.md for install / uninstall / verify instructions.
+#
+# Format note: /etc/cron.d/ entries take a username column (between the
+# schedule and the command). This file uses `root` because both pipx (which
+# installs yt-dlp/spotdl into /root/.local/) and the project venv at
+# /var/www/download-music-wed/.venv-ytmusic/ are owned by root today. If
+# that changes (see TODO #8 "don't run as root"), update the user column.
+#
+# Disk cleanup of music/ and playlists/ is NOT here — it runs in-process from
+# lib/disk-cleanup.ts on a 6-hour interval. The orchestrator bootstraps it on
+# first job creation so reboots reset the timer naturally.
+
+# Cron's default PATH is minimal; explicitly include the dirs where pipx and
+# /usr/bin live so the commands below resolve without absolute paths everywhere.
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# ── Weekly: upgrade pipx-installed CLIs (yt-dlp, spotdl) ─────────────────────
+# YouTube breaks yt-dlp extractors every few weeks. Auto-upgrade catches the
+# fixes before users see "Sign in to confirm you're not a bot" errors.
+0 4 * * 1 root /usr/bin/pipx upgrade-all >>/var/log/wax/pipx-upgrade.log 2>&1
+
+# ── Weekly: upgrade ytmusicapi inside the project venv ──────────────────────
+# Offset by 15 min so the two pip operations don't fight for the network.
+# Targets the project-local venv created by first-time setup; do NOT switch to
+# `pip install --user` — that would shadow the venv install at runtime.
+15 4 * * 1 root /var/www/download-music-wed/.venv-ytmusic/bin/pip install --upgrade ytmusicapi >>/var/log/wax/ytmusicapi-upgrade.log 2>&1
