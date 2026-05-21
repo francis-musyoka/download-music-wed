@@ -81,7 +81,6 @@ export interface HealthStatus {
     ytdlp: boolean;
     ffmpeg: boolean;
     spotdl: boolean;
-    playwright: boolean;
     diskFreeGb: number | null;
 }
 
