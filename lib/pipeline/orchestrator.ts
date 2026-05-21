@@ -8,7 +8,11 @@ import {
 } from "../llm/rerankCandidates.ts";
 import type { RerankCandidate } from "../llm/types.ts";
 import { applyNoiseFilter } from "./scoring/noiseFilter.ts";
-import { findBestTitleMatch } from "./utils/title-match.ts";
+import {
+        findBestTitleMatch,
+        matchesPrimaryArtist,
+        normaliseForMatch,
+} from "./utils/title-match.ts";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -273,17 +277,14 @@ export async function rankArtist(
         throw new Error(`No songs found for artist "${artist}".`);
     }
 
-    // Wide artist match — keep if normalize(artist) appears in any of
-    // candidate.artists[]. Features count as the artist's tracks too.
-    const aLow = artist.toLowerCase().trim();
+    // Strict primary-artist match with Levenshtein fuzzy fallback — keep only
+    // tracks where the PRIMARY artist (artists[0]) is the searched artist.
+    // Features and collabs (searched artist in artists[1+]) get dropped so a
+    // search for "Popcaan" doesn't surface "Davido — Risky (feat. Popcaan)".
+    // Fuzzy fallback catches insertion/substitution typos that the substring
+    // check misses (e.g. "Adell" / "Burna Boi" / "popkan").
     type WithArtists = Track & { artists?: string[] };
-    const matched = (raw as WithArtists[]).filter((t) => {
-        const list = t.artists ?? [t.artist];
-        return list.some((a) => {
-            const x = (a || "").toLowerCase().trim();
-            return x && (x === aLow || x.includes(aLow) || aLow.includes(x));
-        });
-    });
+    const matched = (raw as WithArtists[]).filter((t) => matchesPrimaryArtist(t, artist));
 
     let candidates: Track[] = applyNoiseFilter(matched, "artist");
     candidates = dedupeAgainstLibrary(candidates);
@@ -291,7 +292,22 @@ export async function rankArtist(
 
     onProgress({ stage: "scoring", message: "Ranking" });
     const ranked = rankCandidates(candidates);
-    const selected = ranked.slice(0, limit);
+
+    // Dedupe by normalised title — YT Music often returns multiple uploads of
+    // the same song (e.g., topic channel + auto-generated track). Walk the
+    // ranked list and keep only the first occurrence of each title so the
+    // final top-N has no near-duplicates.
+    const seenTitles = new Set<string>();
+    const deduped: Track[] = [];
+    for (const t of ranked) {
+        const key = normaliseForMatch(t.title || "");
+        if (key && !seenTitles.has(key)) {
+            seenTitles.add(key);
+            deduped.push(t);
+        }
+    }
+
+    const selected = deduped.slice(0, limit);
     let note: string | undefined;
     if (selected.length < limit) {
         note = `Only ${selected.length} tracks found for ${artist}.`;
