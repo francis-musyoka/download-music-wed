@@ -39,3 +39,6 @@ e2e/
 TODO.md
 previewImages
 scripts
+
+# Python venv used by scripts/ytmusic_search.py
+.venv-ytmusic/
