@@ -2,37 +2,20 @@ import { basename, extname } from "node:path";
 import { statSync } from "node:fs";
 import type { DownloadedTrack, ProgressEvent, Track } from "../types";
 import { ensureDirs } from "./deps";
-import { understandQuerySafe } from "../llm/understandQuery.ts";
 import {
         rerankCandidatesSafe,
         summarizeRejectCategories,
 } from "../llm/rerankCandidates.ts";
 import type { RerankCandidate } from "../llm/types.ts";
 import { applyNoiseFilter } from "./scoring/noiseFilter.ts";
-import { fetchUploadDates } from "./enrich/uploadDates.ts";
 import { findBestTitleMatch } from "./utils/title-match.ts";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const log = require("./utils/logger");
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const spotifyMod = require("./scrapers/spotify") as {
-        collectCandidates: (
-                genre: string,
-                opts?: { extraSearchTerms?: string[] },
-        ) => Promise<Track[]>;
-        collectArtistCandidates: (artist: string) => Promise<Track[]>;
-};
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const youtubeMod = require("./scrapers/youtube") as {
-        searchYouTube: (query: string, count?: number) => Promise<YtSearchResult[]>;
-        findBestMatch: (artist: string, title: string) => Promise<YtSearchResult | null>;
         downloadTrack: (url: string, outputDir?: string) => Promise<string | null>;
-        searchAndDownload: (
-                artist: string,
-                title: string,
-                outputDir?: string,
-        ) => Promise<{ filePath: string; videoData: YtSearchResult } | null>;
 };
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const hitScoreMod = require("./scoring/hitScore") as {
@@ -71,35 +54,16 @@ const ytmusicApiMod = require("./scrapers/ytmusic-api") as {
 };
 const { searchSongs, searchSongsParallel } = ytmusicApiMod;
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const formatMod = require("./utils/format") as {
-        isMixOrCompilation: (title: string) => boolean;
-};
-// eslint-disable-next-line @typescript-eslint/no-require-imports
 const constantsMod = require("./config/constants") as {
         MUSIC_DIR: string;
-        MAX_DURATION: number;
-        MIN_DURATION: number;
         DEFAULT_LIMIT: number;
 };
 
-const { collectCandidates, collectArtistCandidates } = spotifyMod;
-const { searchYouTube, findBestMatch, downloadTrack, searchAndDownload } =
-        youtubeMod;
+const { downloadTrack } = youtubeMod;
 const { rankCandidates } = hitScoreMod;
 const { applyDiversityCap } = diversityMod;
 const { generateM3U, generateM3UFromFiles, getExistingSongs } = m3uMod;
-const { isMixOrCompilation } = formatMod;
-const { MUSIC_DIR, MAX_DURATION, MIN_DURATION, DEFAULT_LIMIT } = constantsMod;
-
-interface YtSearchResult {
-        videoId: string;
-        title: string;
-        url: string;
-        views: number;
-        duration: number;
-        uploadDate: string | null;
-        channel: string;
-}
+const { MUSIC_DIR, DEFAULT_LIMIT } = constantsMod;
 
 export type OnProgress = (ev: Omit<ProgressEvent, "jobId">) => void;
 
@@ -149,139 +113,6 @@ function dedupeAgainstLibrary(candidates: Track[]): Track[] {
                 const artistTitle = `${c.artist || ""} - ${c.title || ""}`.toLowerCase();
                 return !existing.has(titleLower) && !existing.has(artistTitle);
         });
-}
-
-/**
- * YouTube search fallback when Spotify scraping returns zero candidates.
- * Mirrors `youtubeSearchFallback` in the CLI's pipeline.js.
- */
-async function scrapeYTMusicFallback(
-        genre: string,
-        count: number,
-): Promise<Track[]> {
-        const query = `${genre} official music video ${new Date().getFullYear()}`;
-        const results = await searchYouTube(query, count);
-
-        return results
-                .filter((r) => {
-                        if (r.duration > MAX_DURATION) return false;
-                        if (r.duration < MIN_DURATION) return false;
-                        if (isMixOrCompilation(r.title)) return false;
-                        return true;
-                })
-                .map((r) => ({
-                        title: r.title,
-                        artist: r.channel || "Unknown",
-                        channel: r.channel,
-                        playlistCount: 1,
-                        bestPosition: 50,
-                        views: r.views,
-                        duration: r.duration,
-                        uploadDate: r.uploadDate ?? undefined,
-                        videoUrl: r.url,
-                        videoId: r.videoId,
-                        source: "youtube",
-                }));
-}
-
-/**
- * yt-dlp fallback for artist mode when the Playwright YT-Music scrape returns
- * zero candidates (typical on datacenter IPs that hit Google's EU consent wall).
- * Loose channel-name match mirrors collectArtistCandidates in scrapers/spotify.js.
- */
-async function searchArtistFallback(
-        artist: string,
-        count: number,
-): Promise<Track[]> {
-        const queries = [
-                `${artist} best songs`,
-                `${artist} top hits`,
-                `${artist} popular songs`,
-        ];
-        const artistLower = artist.toLowerCase();
-        const seen = new Map<string, Track>();
-
-        for (const query of queries) {
-                let results: YtSearchResult[];
-                try {
-                        results = await searchYouTube(query, count);
-                } catch {
-                        continue;
-                }
-                for (const r of results) {
-                        if (r.duration > MAX_DURATION) continue;
-                        if (r.duration > 0 && r.duration < MIN_DURATION) continue;
-                        if (isMixOrCompilation(r.title)) continue;
-
-                        const channelLower = (r.channel || "").toLowerCase();
-                        const matches =
-                                channelLower.includes(artistLower) ||
-                                (channelLower !== "" && artistLower.includes(channelLower));
-                        if (!matches) continue;
-
-                        if (seen.has(r.videoId)) continue;
-                        seen.set(r.videoId, {
-                                videoId: r.videoId,
-                                title: r.title,
-                                artist: r.channel || artist,
-                                channel: r.channel,
-                                duration: r.duration,
-                                views: r.views,
-                                uploadDate: r.uploadDate ?? undefined,
-                                videoUrl: r.url,
-                                playlistCount: 1,
-                                bestPosition: 50,
-                                source: "youtube",
-                        });
-                }
-        }
-
-        return Array.from(seen.values());
-}
-
-async function enrichCandidates(
-        candidates: Track[],
-        onProgress: OnProgress,
-): Promise<void> {
-        // Sequential by design: the CLI enriches one-at-a-time because YouTube
-        // search is rate-limited. Do NOT parallelize.
-        const needsEnrichment = candidates.filter((c) => !c.videoId);
-        if (needsEnrichment.length === 0) return;
-
-        onProgress({
-                stage: "enriching-youtube",
-                current: 0,
-                total: needsEnrichment.length,
-                message: `Sourcing audio for ${needsEnrichment.length} candidates`,
-        });
-
-        for (let i = 0; i < needsEnrichment.length; i++) {
-                const candidate = needsEnrichment[i];
-                try {
-                        const match = await findBestMatch(candidate.artist, candidate.title);
-                        if (match) {
-                                candidate.views = match.views;
-                                candidate.duration = match.duration;
-                                candidate.uploadDate = match.uploadDate ?? undefined;
-                                candidate.videoUrl = match.url;
-                                candidate.videoId = match.videoId;
-                        }
-                } catch {
-                        // Skip enrichment failures silently (matches CLI behavior).
-                }
-                onProgress({
-                        stage: "enriching-youtube",
-                        current: i + 1,
-                        total: needsEnrichment.length,
-                });
-        }
-
-        // Ensure videoUrl is set for every candidate that has a videoId.
-        for (const c of candidates) {
-                if (c.videoId && !c.videoUrl) {
-                        c.videoUrl = `https://www.youtube.com/watch?v=${c.videoId}`;
-                }
-        }
 }
 
 function toDownloadedTrack(
