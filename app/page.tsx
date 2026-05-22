@@ -23,6 +23,9 @@ const STAGE_LABELS: Record<string, string> = {
     "enriching-youtube": "Sourcing audio",
     "enriching-dates": "Reading press dates",
     scoring: "Scoring the cut",
+    "llm-reranking": "Polishing the cut",
+    "llm-reranked": "Polishing the cut",
+    "llm-degraded": "Polishing skipped",
     downloading: "Pressing tracks",
 };
 
