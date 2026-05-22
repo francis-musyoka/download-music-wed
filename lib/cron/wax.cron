@@ -25,3 +25,10 @@ PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Targets the project-local venv created by first-time setup; do NOT switch to
 # `pip install --user` — that would shadow the venv install at runtime.
 15 4 * * 1 root /var/www/download-music-wed/.venv-ytmusic/bin/pip install --upgrade ytmusicapi >>/var/log/wax/ytmusicapi-upgrade.log 2>&1
+
+# ── Every 6 hours: cookie health check ──────────────────────────────────────
+# Dry-runs yt-dlp against a stable videoId. If YouTube returns "Sign in to
+# confirm you're not a bot", pings COOKIE_ALERT_WEBHOOK (Discord/Slack URL)
+# so the cookies file can be refreshed promptly. Silent if no webhook is
+# configured. Logs to /var/log/wax/check-cookies.log for post-mortem.
+0 */6 * * * root /var/www/download-music-wed/lib/cron/check-cookies.sh >>/var/log/wax/check-cookies.log 2>&1
