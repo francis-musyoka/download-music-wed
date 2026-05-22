@@ -11,7 +11,8 @@
   --bg: #0c0a09;
   --bg-2: #171310;
   --fg: #fafaf9;
-  --fg-dim: #a8a29e;
+  /* --fg-dim: #a8a29e; */
+  --fg-dim: #ebebeb;
   --fg-muted: #57534e;
   --accent: #ff5a1f;
   --accent-2: #c1ff00;

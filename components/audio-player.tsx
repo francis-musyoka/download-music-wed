@@ -7,7 +7,7 @@ import {
     useState,
     type Ref,
 } from "react";
-import { GripVertical, Pause, Play, X } from "lucide-react";
+import { GripVertical, Pause, Play, SkipBack, SkipForward, X } from "lucide-react";
 import { useDraggable } from "@/lib/hooks/use-draggable";
 import { cn } from "@/lib/utils";
 
@@ -23,6 +23,12 @@ interface AudioPlayerProps {
     onError?: () => void;
     /** Fires when the player becomes visible (track loaded) or hides (closed, ended). */
     onVisibilityChange?: (visible: boolean) => void;
+    /** Fires when a track ends naturally — parent uses this to auto-advance. */
+    onEnded?: () => void;
+    onNext?: () => void;
+    onPrev?: () => void;
+    hasNext?: boolean;
+    hasPrev?: boolean;
 }
 
 function fmtTime(sec: number): string {
@@ -32,7 +38,18 @@ function fmtTime(sec: number): string {
     return `${m}:${String(s).padStart(2, "0")}`;
 }
 
-export function AudioPlayer({ ref, onPlay, onPause, onError, onVisibilityChange }: AudioPlayerProps) {
+export function AudioPlayer({
+    ref,
+    onPlay,
+    onPause,
+    onError,
+    onVisibilityChange,
+    onEnded,
+    onNext,
+    onPrev,
+    hasNext,
+    hasPrev,
+}: AudioPlayerProps) {
     const audioRef = useRef<HTMLAudioElement>(null);
     const progressRef = useRef<HTMLDivElement>(null);
     const containerRef = useRef<HTMLDivElement>(null);
@@ -76,20 +93,27 @@ export function AudioPlayer({ ref, onPlay, onPause, onError, onVisibilityChange 
         };
         const onPauseEv = () => {
             setPlaying(false);
+            // The HTML5 media spec dispatches `pause` immediately before `ended`
+            // when playback finishes naturally. If we forward that synthetic
+            // pause to the parent (clearing playingKey), the auto-advance
+            // closure captured for `onEnded` becomes stale (`hasNext: false`)
+            // by the time `ended` fires a tick later. Let `onEndedEv` own the
+            // parent-side cleanup in that case.
+            if (el.ended) return;
             onPause?.();
         };
-        const onEnded = () => {
-            // Defensive: detach the source so the element can't auto-continue.
-            // YouTube Music "Topic" channel URLs sometimes resolve to a manifest
-            // that chains the artist's other tracks — without this teardown the
-            // browser follows the chain when the first track ends.
-            el.pause();
-            el.removeAttribute("src");
-            el.load();
-            setPlaying(false);
-            trackKeyRef.current = null;
-            setLabel(null);
+        const onEndedEv = () => {
+            // Keep the player chrome visible across track boundaries:
+            //  - During auto-advance, the next play() call overwrites src/label
+            //    without the player flickering closed and back open.
+            //  - At end of queue, the chrome stays put showing the just-ended
+            //    track. The user can click ▶ to restart it (Spotify-style), or
+            //    X to close, or any other row to start a new track.
+            // No teardown of src/label needed: we stream a single googlevideo
+            // chunk via /api/stream/[videoId], not a YT Music Topic-channel
+            // manifest, so the browser has nothing to auto-chain to.
             onPause?.();
+            onEnded?.();
         };
         const onTime = () => setCurrent(el.currentTime);
         const onMeta = () => setDuration(el.duration || 0);
@@ -98,19 +122,19 @@ export function AudioPlayer({ ref, onPlay, onPause, onError, onVisibilityChange 
         };
         el.addEventListener("play", onPlayEv);
         el.addEventListener("pause", onPauseEv);
-        el.addEventListener("ended", onEnded);
+        el.addEventListener("ended", onEndedEv);
         el.addEventListener("timeupdate", onTime);
         el.addEventListener("loadedmetadata", onMeta);
         el.addEventListener("error", onErrorEv);
         return () => {
             el.removeEventListener("play", onPlayEv);
             el.removeEventListener("pause", onPauseEv);
-            el.removeEventListener("ended", onEnded);
+            el.removeEventListener("ended", onEndedEv);
             el.removeEventListener("timeupdate", onTime);
             el.removeEventListener("loadedmetadata", onMeta);
             el.removeEventListener("error", onErrorEv);
         };
-    }, [onPlay, onPause, onError]);
+    }, [onPlay, onPause, onError, onEnded]);
 
     useEffect(() => {
         onVisibilityChange?.(!!label);
@@ -193,6 +217,21 @@ export function AudioPlayer({ ref, onPlay, onPause, onError, onVisibilityChange 
                     <button
                         type="button"
                         data-no-drag
+                        onClick={onPrev}
+                        disabled={!hasPrev || !onPrev}
+                        aria-label="Previous track"
+                        className={cn(
+                            "inline-flex size-9 shrink-0 items-center justify-center",
+                            "border border-line-bright text-fg-dim transition-colors",
+                            "hover:border-fg hover:text-fg",
+                            "disabled:opacity-30 disabled:pointer-events-none disabled:hover:border-line-bright disabled:hover:text-fg-dim",
+                        )}
+                    >
+                        <SkipBack size={14} fill="currentColor" />
+                    </button>
+                    <button
+                        type="button"
+                        data-no-drag
                         onClick={togglePlay}
                         aria-label={playing ? "Pause" : "Play"}
                         className="inline-flex size-9 shrink-0 items-center justify-center bg-fg text-bg transition-colors hover:bg-accent"
@@ -202,6 +241,21 @@ export function AudioPlayer({ ref, onPlay, onPause, onError, onVisibilityChange 
                         ) : (
                             <Play size={14} fill="currentColor" />
                         )}
+                    </button>
+                    <button
+                        type="button"
+                        data-no-drag
+                        onClick={onNext}
+                        disabled={!hasNext || !onNext}
+                        aria-label="Next track"
+                        className={cn(
+                            "inline-flex size-9 shrink-0 items-center justify-center",
+                            "border border-line-bright text-fg-dim transition-colors",
+                            "hover:border-fg hover:text-fg",
+                            "disabled:opacity-30 disabled:pointer-events-none disabled:hover:border-line-bright disabled:hover:text-fg-dim",
+                        )}
+                    >
+                        <SkipForward size={14} fill="currentColor" />
                     </button>
                     <div
                         className="min-w-0 flex-1 overflow-hidden text-ellipsis whitespace-nowrap text-[11px] uppercase tracking-widest text-fg"

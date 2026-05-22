@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Nav } from "@/components/nav";
 import { Hero } from "@/components/hero";
 import { HowToDownload } from "@/components/how-to-download";
@@ -14,6 +14,7 @@ import { subscribeJob } from "@/lib/client/sse";
 import { toast } from "@/hooks/use-toast";
 import type { DownloadedTrack, Mode, ProgressEvent, Track } from "@/lib/types";
 import { ValueProps } from "@/components/value-props";
+import { MOCK_TRACKS } from "@/lib/fixtures/mock-tracks";
 
 type Row = Track | DownloadedTrack;
 
@@ -156,6 +157,19 @@ export default function Page() {
             sseRef.current?.();
             sseRef.current = null;
         };
+    }, []);
+
+    // Dev-only escape hatch: `?mock=1` pre-loads the fixture track list so the
+    // audio player (preview, next/prev, auto-advance) can be exercised without
+    // burning a real search. Hard-gated on NODE_ENV !== "production" so this
+    // can never surface in a deployed build.
+    useEffect(() => {
+        if (process.env.NODE_ENV === "production") return;
+        if (typeof window === "undefined") return;
+        const params = new URLSearchParams(window.location.search);
+        if (params.get("mock") !== "1") return;
+        setTracks(MOCK_TRACKS);
+        setInputLabel("mock · 5 tracks");
     }, []);
 
     const openHow = useCallback(() => setHowOpen(true), []);
@@ -490,6 +504,25 @@ export default function Page() {
         [startDownload, tracks, playingKey],
     );
 
+    // Adjacent-track navigation for the audio player's next/prev buttons and
+    // auto-advance on `ended`. `playingIdx` is computed from the live key so
+    // we always navigate relative to whatever is *currently* playing — not
+    // whatever the user clicked on last.
+    const playingIdx = useMemo(() => {
+        if (!playingKey) return -1;
+        return tracks.findIndex((t, i) => rowKey(t, i) === playingKey);
+    }, [tracks, playingKey]);
+    const hasPrev = playingIdx > 0;
+    const hasNext = playingIdx >= 0 && playingIdx < tracks.length - 1;
+    const playNext = useCallback(() => {
+        if (!hasNext) return;
+        void playTrack(tracks[playingIdx + 1]);
+    }, [hasNext, playTrack, tracks, playingIdx]);
+    const playPrev = useCallback(() => {
+        if (!hasPrev) return;
+        void playTrack(tracks[playingIdx - 1]);
+    }, [hasPrev, playTrack, tracks, playingIdx]);
+
     const downloadOne = useCallback(
         async (t: Row): Promise<void> => {
             const idx = tracks.findIndex((x) => x === t);
@@ -729,6 +762,11 @@ export default function Page() {
                 onPause={() => setPlayingKey(null)}
                 onError={() => setLoadingKey(null)}
                 onVisibilityChange={setAudioVisible}
+                onEnded={playNext}
+                onNext={playNext}
+                onPrev={playPrev}
+                hasNext={hasNext}
+                hasPrev={hasPrev}
             />
             <DownloadDock items={dock} onClose={closeDock} liftedAbove={audioVisible} />
             <HowItWorksModal open={howOpen} onOpenChange={setHowOpen} />

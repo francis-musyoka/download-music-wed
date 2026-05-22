@@ -26,14 +26,19 @@ export function TextInput({ label, inputType = "text", id, className, trailing, 
                     </span>
                 )}
             </label>
-            <div className="flex items-baseline gap-2">
+            <div
+                className={cn(
+                    "flex items-center gap-2 border border-line-bright bg-transparent px-3.5 transition-colors md:px-4",
+                    "hover:border-fg focus-within:border-accent focus-within:bg-bg",
+                )}
+            >
                 <input
                     id={fieldId}
                     type={inputType}
                     className={cn(
-                        "block w-full appearance-none border-0 border-b border-line-bright bg-transparent py-3",
-                        "text-xl font-medium text-fg outline-none transition-colors",
-                        "placeholder:text-fg-muted focus:border-accent",
+                        "block w-full appearance-none bg-transparent py-2.5 outline-none",
+                        "text-lg font-medium text-fg md:text-xl",
+                        "placeholder:text-fg-muted",
                         className,
                     )}
                     {...rest}
