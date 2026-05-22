@@ -13,6 +13,7 @@ import {
         matchesPrimaryArtist,
         normaliseForMatch,
 } from "./utils/title-match.ts";
+import { isCuratedGenre } from "../constants/genres.ts";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -211,61 +212,76 @@ export async function rankGenre(
         const llmInput = dedupedRanked.slice(0, LLM_INPUT_CAP);
         toLlm = llmInput.length;
 
-        onProgress({
-                stage: "llm-reranking",
-                message: `Classifying ${llmInput.length} candidates`,
-        });
-
-        // Minimal intent stub — understandQuery was removed; rerankCandidatesSafe
-        // still expects this shape for its prompt assembly.
-        const fakeIntent = {
-                mode: "genre" as const,
-                canonicalGenre: genre,
-                displayName: genre,
-                knownGenre: true,
-                spellCorrected: false,
-                originalInput: genre,
-                searchTerms: [],
-        };
-
-        const result = await rerankCandidatesSafe({
-                mode: "genre",
-                intent: fakeIntent,
-                candidates: llmInput.map<RerankCandidate>((c) => ({
-                        id: c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`,
-                        title: c.title,
-                        artist: c.artist,
-                })),
-                jobId: opts.jobId,
-        });
-
+        // Skip the LLM rerank entirely when the user picked a curated genre.
+        // Those genres were empirically verified to return on-topic top-30
+        // by hit-score alone (see lib/constants/genres.ts), so the rerank
+        // would only spend 5-15s of OpenAI latency for marginal quality
+        // gain — and the expensive-tier daily quota is preserved for
+        // free-text/legacy callers that actually benefit from the LLM
+        // filter. The route layer also skips peekDailyExpensive for these.
         let kept: Track[];
-        if (result.ok) {
-                const keepIds = new Set(result.kept.map((d) => d.id));
-                const idOf = (c: Track) =>
-                        c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`;
-                kept = llmInput.filter((c) => keepIds.has(idOf(c)));
+        if (isCuratedGenre(genre)) {
                 onProgress({
                         stage: "llm-reranked",
-                        message: "Classification complete",
-                        rerankSummary: {
-                                kept: result.kept.length,
-                                dropped: result.dropped.length,
-                                rejectCategories: summarizeRejectCategories(result.dropped),
-                        },
+                        message: "Curated genre — keeping top picks",
                 });
-                // The rerank actually fired and succeeded — let the route layer
-                // bump the per-session expensive-tier daily quota. Decoupled via
-                // callback so the orchestrator doesn't import lib/limits.ts.
-                opts.onExpensiveFired?.();
+                kept = llmInput;
         } else {
                 onProgress({
-                        stage: "llm-degraded",
-                        degradeStep: "rerank",
-                        message: result.reason,
+                        stage: "llm-reranking",
+                        message: `Classifying ${llmInput.length} candidates`,
                 });
-                // Degrade: take top 10 of the 50 by hit-score
-                kept = llmInput;
+
+                // Minimal intent stub — understandQuery was removed; rerankCandidatesSafe
+                // still expects this shape for its prompt assembly.
+                const fakeIntent = {
+                        mode: "genre" as const,
+                        canonicalGenre: genre,
+                        displayName: genre,
+                        knownGenre: true,
+                        spellCorrected: false,
+                        originalInput: genre,
+                        searchTerms: [],
+                };
+
+                const result = await rerankCandidatesSafe({
+                        mode: "genre",
+                        intent: fakeIntent,
+                        candidates: llmInput.map<RerankCandidate>((c) => ({
+                                id: c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`,
+                                title: c.title,
+                                artist: c.artist,
+                        })),
+                        jobId: opts.jobId,
+                });
+
+                if (result.ok) {
+                        const keepIds = new Set(result.kept.map((d) => d.id));
+                        const idOf = (c: Track) =>
+                                c.videoId ? `v:${c.videoId}` : `c:${c.artist}__${c.title}`;
+                        kept = llmInput.filter((c) => keepIds.has(idOf(c)));
+                        onProgress({
+                                stage: "llm-reranked",
+                                message: "Classification complete",
+                                rerankSummary: {
+                                        kept: result.kept.length,
+                                        dropped: result.dropped.length,
+                                        rejectCategories: summarizeRejectCategories(result.dropped),
+                                },
+                        });
+                        // The rerank actually fired and succeeded — let the route layer
+                        // bump the per-session expensive-tier daily quota. Decoupled via
+                        // callback so the orchestrator doesn't import lib/limits.ts.
+                        opts.onExpensiveFired?.();
+                } else {
+                        onProgress({
+                                stage: "llm-degraded",
+                                degradeStep: "rerank",
+                                message: result.reason,
+                        });
+                        // Degrade: take top 10 of the 50 by hit-score
+                        kept = llmInput;
+                }
         }
 
         rerankMs = Date.now() - t0 - searchMs;
