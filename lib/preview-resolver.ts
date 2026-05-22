@@ -70,13 +70,6 @@ function spawnYtDlp(videoId: string): Promise<string> {
                 `https://www.youtube.com/watch?v=${videoId}`,
                 "--no-warnings",
                 "--no-playlist",
-                // Force YouTube's Android-VR API client. yt-dlp's default probes
-                // web/web_safari/ios/etc first; those run the slow JS signature
-                // solver and burn ~10s before falling through to android_vr which
-                // actually works. Pinning it cuts cold resolve from ~15s to ~5s
-                // (measured across 4 real-search tracks).
-                "--extractor-args",
-                "youtube:player_client=android_vr",
             ],
             { timeout: YT_DLP_TIMEOUT_MS, maxBuffer: 1024 * 1024 },
             (err, stdout) => {
