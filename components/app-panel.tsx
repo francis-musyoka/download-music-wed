@@ -12,11 +12,21 @@ import { SongInput } from "./inputs/song-input";
 import { UrlInput } from "./inputs/url-input";
 import { cn } from "@/lib/utils";
 
-export interface Quota {
+export interface QuotaTier {
     used: number;
     max: number;
     resetsAt: number;
 }
+
+export interface Quota {
+    overall: QuotaTier;
+    expensive: QuotaTier;
+}
+
+// Show a warning when a tier has this many or fewer slots remaining.
+// Tuned to match the spec'd thresholds: expensive 25/30, overall 140/150.
+const EXPENSIVE_WARN_REMAINING = 5;
+const OVERALL_WARN_REMAINING = 10;
 
 export interface StatusLine {
     text: string;
@@ -205,14 +215,27 @@ export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
 
                             <div className="mt-8 flex flex-col items-stretch gap-4 border-t border-dashed border-line pt-6 md:flex-row md:items-center md:justify-between">
                                 <span className="font-mono text-[11px] uppercase tracking-widest text-fg-dim">
-                                    {quota && (mode === "genre" || mode === "artist") ? (
-                                        <>
-                                            Quota {quota.used}/{quota.max}
-                                            {quota.used >= quota.max && " · back at midnight UTC"}
-                                        </>
-                                    ) : (
-                                        <>Resets midnight UTC</>
-                                    )}
+                                    {(() => {
+                                        if (!quota) return <>Resets midnight UTC</>;
+                                        const expRemain = quota.expensive.max - quota.expensive.used;
+                                        const overallRemain = quota.overall.max - quota.overall.used;
+                                        // Expensive is the tighter cap and only matters when the user is
+                                        // about to / actively using genre mode. Surface its warning first
+                                        // (artist / song / URL still work even when expensive is exhausted).
+                                        if (mode === "genre" && expRemain <= EXPENSIVE_WARN_REMAINING) {
+                                            if (expRemain <= 0) {
+                                                return <>Genre search exhausted — try artist, song, or URL · back at midnight UTC</>;
+                                            }
+                                            return <>{expRemain} genre {expRemain === 1 ? "search" : "searches"} left today · other modes still work</>;
+                                        }
+                                        if (overallRemain <= OVERALL_WARN_REMAINING) {
+                                            if (overallRemain <= 0) {
+                                                return <>Daily limit reached · back at midnight UTC</>;
+                                            }
+                                            return <>{overallRemain} {overallRemain === 1 ? "search" : "searches"} left today</>;
+                                        }
+                                        return <>Resets midnight UTC</>;
+                                    })()}
                                 </span>
                                 <button
                                     type="button"

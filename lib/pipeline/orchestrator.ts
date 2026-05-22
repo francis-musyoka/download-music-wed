@@ -75,6 +75,13 @@ export interface RankOptions {
         limit?: number;
         onProgress?: OnProgress;
         jobId?: string;
+        /**
+         * Called when an "expensive" LLM operation actually fired and returned
+         * `ok` (currently: only `rerankCandidates` inside `rankGenre`). Lets the
+         * route layer defer-increment the per-session expensive-tier quota in
+         * `lib/limits.ts` so a degraded rerank doesn't burn the user's budget.
+         */
+        onExpensiveFired?: () => void;
 }
 
 export interface DownloadOptions {
@@ -247,6 +254,10 @@ export async function rankGenre(
                                 rejectCategories: summarizeRejectCategories(result.dropped),
                         },
                 });
+                // The rerank actually fired and succeeded — let the route layer
+                // bump the per-session expensive-tier daily quota. Decoupled via
+                // callback so the orchestrator doesn't import lib/limits.ts.
+                opts.onExpensiveFired?.();
         } else {
                 onProgress({
                         stage: "llm-degraded",

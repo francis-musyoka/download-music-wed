@@ -109,7 +109,10 @@ export default function Page() {
     const [status, setStatus] = useState<StatusLine[]>([]);
     const [tracks, setTracks] = useState<Row[]>([]);
     const [note, setNote] = useState<string | undefined>(undefined);
-    const [quota, setQuota] = useState<{ used: number; max: number; resetsAt: number } | undefined>(undefined);
+    const [quota, setQuota] = useState<{
+        overall: { used: number; max: number; resetsAt: number };
+        expensive: { used: number; max: number; resetsAt: number };
+    } | undefined>(undefined);
     const [inputLabel, setInputLabel] = useState("");
     const [dock, setDock] = useState<DockItem[]>([]);
     const [playingKey, setPlayingKey] = useState<string | null>(null);
