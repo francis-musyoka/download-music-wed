@@ -56,7 +56,7 @@ interface Props {
 
 export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
     const [mode, setMode] = useState<Mode>("genre");
-    const [genre, setGenre] = useState("afrobeats");
+    const [genre, setGenre] = useState("");
     const [genreLimit, setGenreLimit] = useState(10);
     const [genreName, setGenreName] = useState("");
     const [artist, setArtist] = useState("");
@@ -70,6 +70,7 @@ export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
     const handleGo = useCallback(() => {
         if (busy) return;
         if (mode === "genre") {
+            if (!genre.trim()) return;
             onSubmit({
                 mode,
                 input: genre,
@@ -77,6 +78,7 @@ export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
                 name: genreName || `${genre} Hits`,
             });
         } else if (mode === "artist") {
+            if (!artist.trim()) return;
             onSubmit({
                 mode,
                 input: artist,
@@ -214,29 +216,31 @@ export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
                             )}
 
                             <div className="mt-8 flex flex-col items-stretch gap-4 border-t border-dashed border-line pt-6 md:flex-row md:items-center md:justify-between">
-                                <span className="font-mono text-[11px] uppercase tracking-widest text-fg-dim">
-                                    {(() => {
-                                        if (!quota) return <>Resets midnight UTC</>;
-                                        const expRemain = quota.expensive.max - quota.expensive.used;
-                                        const overallRemain = quota.overall.max - quota.overall.used;
-                                        // Expensive is the tighter cap and only matters when the user is
-                                        // about to / actively using genre mode. Surface its warning first
-                                        // (artist / song / URL still work even when expensive is exhausted).
-                                        if (mode === "genre" && expRemain <= EXPENSIVE_WARN_REMAINING) {
-                                            if (expRemain <= 0) {
-                                                return <>Genre search exhausted — try artist, song, or URL · back at midnight UTC</>;
-                                            }
-                                            return <>{expRemain} genre {expRemain === 1 ? "search" : "searches"} left today · other modes still work</>;
-                                        }
-                                        if (overallRemain <= OVERALL_WARN_REMAINING) {
-                                            if (overallRemain <= 0) {
-                                                return <>Daily limit reached · back at midnight UTC</>;
-                                            }
-                                            return <>{overallRemain} {overallRemain === 1 ? "search" : "searches"} left today</>;
-                                        }
-                                        return <>Resets midnight UTC</>;
-                                    })()}
-                                </span>
+                                {(() => {
+                                    if (!quota) return null;
+                                    const expRemain = quota.expensive.max - quota.expensive.used;
+                                    const overallRemain = quota.overall.max - quota.overall.used;
+                                    // Only render when the user is close to (or over) a cap.
+                                    // Below threshold we stay silent — no decorative
+                                    // "Resets midnight UTC" line at rest. Expensive surfaces
+                                    // first in genre mode since it's the tighter cap.
+                                    let msg: string | null = null;
+                                    if (mode === "genre" && expRemain <= EXPENSIVE_WARN_REMAINING) {
+                                        msg = expRemain <= 0
+                                            ? "Genre search exhausted — try artist, song, or URL · back at midnight UTC"
+                                            : `${expRemain} genre ${expRemain === 1 ? "search" : "searches"} left today · other modes still work`;
+                                    } else if (overallRemain <= OVERALL_WARN_REMAINING) {
+                                        msg = overallRemain <= 0
+                                            ? "Daily limit reached · back at midnight UTC"
+                                            : `${overallRemain} ${overallRemain === 1 ? "search" : "searches"} left today`;
+                                    }
+                                    if (!msg) return null;
+                                    return (
+                                        <span className="font-mono text-[11px] uppercase tracking-widest text-fg-dim">
+                                            {msg}
+                                        </span>
+                                    );
+                                })()}
                                 <button
                                     type="button"
                                     onClick={handleGo}
@@ -247,7 +251,7 @@ export function AppPanel({ onSubmit, statusLines = [], busy, quota }: Props) {
                                         "bg-accent text-bg border border-accent",
                                         "font-mono text-sm uppercase tracking-widest font-medium",
                                         "transition-transform duration-150",
-                                        "hover:translate-x-1",
+                                        "hover:translate-x-1 md:ml-auto",
                                         "disabled:opacity-55 disabled:cursor-not-allowed disabled:pointer-events-none disabled:hover:translate-x-0",
                                     )}
                                 >
