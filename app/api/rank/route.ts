@@ -16,6 +16,7 @@ import {
     reserveSlot,
 } from "@/lib/limits";
 import { getOrSetSession } from "@/lib/session";
+import { isCuratedGenre } from "@/lib/constants/genres";
 import type { Mode, Track } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -133,7 +134,11 @@ export async function POST(req: Request) {
     // rerank — peek (read-only) so a blocked genre request doesn't burn the
     // user's overall quota below. The deferred increment happens via
     // `onExpensiveFired` from the orchestrator after a successful rerank.
-    if (mode === "genre") {
+    //
+    // Curated-list genres skip the rerank entirely (see lib/constants/genres.ts
+    // and lib/pipeline/orchestrator.ts), so they don't draw from the expensive
+    // tier — skip the peek for them too.
+    if (mode === "genre" && !isCuratedGenre(stringInput!)) {
         const expRetry = peekDailyExpensive(sessionId);
         if (expRetry !== null) {
             return errorResponse(
