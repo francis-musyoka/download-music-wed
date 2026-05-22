@@ -158,7 +158,7 @@ export async function rankGenre(
         // ── Scrape (3× parallel) ──
         onProgress({
                 stage: "scraping-spotify",
-                message: `Searching YT Music for "${genre}"`,
+                message: `Chasing ${genre} heat…`,
         });
         let candidates = await searchSongsParallel(
                 [
@@ -299,7 +299,7 @@ export async function rankArtist(
 
     onProgress({
         stage: "scraping-spotify",
-        message: `Searching YT Music for "${artist}"`,
+        message: `Lining up ${artist} bangers…`,
     });
     const raw = await searchSongs(artist, 200);
     searchMs = Date.now() - t0;
