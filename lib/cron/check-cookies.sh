@@ -54,7 +54,7 @@ fi
 # Cookies are dead — send the alert. Discord wants {"content":"..."}, Slack
 # wants {"text":"..."}; sniff the URL to pick the right shape.
 TS=$(date -u +"%Y-%m-%d %H:%M UTC")
-MSG="⚠️ Wax cookies expired at $TS — yt-dlp hit YouTube's bot wall. Refresh via Profile 15 + Get cookies.txt LOCALLY extension + scp to VPS + pm2 restart wax."
+MSG="⚠️ WaxMusic cookies expired at $TS — yt-dlp hit YouTube's bot wall. Refresh via Profile 15 + Get cookies.txt LOCALLY extension + scp to VPS + pm2 restart wax."
 
 if [[ "$WEBHOOK" == *"slack.com"* ]]; then
     PAYLOAD=$(printf '{"text": %s}' "$(printf '%s' "$MSG" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))')")

@@ -9,7 +9,6 @@
         "lint": "next lint",
         "test": "vitest run",
         "test:watch": "vitest",
-        "e2e": "node --test --experimental-strip-types 'e2e/song-requires-artist.spec.ts'",
         "eval": "node --experimental-strip-types scripts/eval-search.ts",
         "typecheck": "tsc --noEmit"
     },

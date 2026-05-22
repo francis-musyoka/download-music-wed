@@ -61,12 +61,12 @@ These are the things that break the app or its security model if you're not payi
 9. **`safeFilename()` (`lib/sanitize.ts`) on every user-facing filename** — playlist names, ZIP outputs, downloads. Don't bypass.
 10. **Video ID regex** `^[a-zA-Z0-9_-]{11}$` at the boundary in `/api/preview/[videoId]`. Don't rely on yt-dlp to validate.
 11. **ytmusicapi via Python sidecar.** `lib/pipeline/scrapers/ytmusic_search.py` is invoked via argv-array `execFile` from `lib/pipeline/scrapers/ytmusic-api.js`. The `YTMUSIC_PYTHON` env var points at a venv with `ytmusicapi` installed. Genre mode runs 3 parallel searches (bare, `+hits`, `+new`); `+new` tracks get the bucketed hit-score boost. See `docs/superpowers/specs/2026-05-21-ytmusicapi-source-redesign.md`.
-12. **Two-tier daily quota** in `lib/limits.ts`: `overall` (150/day) counts every genre+artist search; `expensive` (12/day) only counts when `rerankCandidates` fires.
+12. **Two-tier daily quota** in `lib/limits.ts`: `overall` (150/day) counts every genre+artist search; `expensive` (30/day) only counts when `rerankCandidates` fires.
 
 ## Things that look wrong but aren't
 
 - **`lib/pipeline/**` is intentionally CommonJS `.js`** — it was ported byte-for-byte from a CLI ancestor. TypeScript may suggest converting to `.ts`; don't. The orchestrator and friends interop with these via `lib/pipeline/deps.ts`.
-- **Internal identifier prefix `download-music-web` / `dm_session` / `__downloadMusic*`** stays even though the product is now branded "Wax / Musicography." It preserves the existing data dir, cookie, and PM2 process name. Don't rename.
+- **Internal identifier prefix `download-music-web` / `dm_session` / `__downloadMusic*`** stays even though the product is now branded "WaxMusic." It preserves the existing data dir, cookie, and PM2 process name. Don't rename.
 - **No Zod for request validation.** Validation in API routes is manual (length clamps, hard-coded enum sets, regex for structured IDs). Zod is only used for LLM response shape. Don't add Zod to routes unless the PR is converting all of them.
 - **Vitest, not `node:test`.** Tests live under `lib/**/__tests__/*.test.ts` and run via `npm test` (Vitest). A few legacy `node:test`-style files remain (`lib/llm/__tests__/{degrade,schemas}.test.ts`); Vitest reports them as "no suite found" — harmless noise until migrated.
 - **All components are `"use client"`.** This is a single-page app driven by SSE; there is no server-component story here. Don't introduce one as a one-off.

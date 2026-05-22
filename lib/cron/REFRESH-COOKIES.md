@@ -1,7 +1,7 @@
 # Refreshing yt-dlp cookies
 
 When the 6-hourly `check-cookies.sh` cron pings your Discord channel with
-"⚠️ Wax cookies expired…", follow this. End-to-end takes ~90 seconds of
+"⚠️ WaxMusic cookies expired…", follow this. End-to-end takes ~90 seconds of
 active time.
 
 ## Prereqs (one-time setup, already done — don't redo)
