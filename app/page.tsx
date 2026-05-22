@@ -12,12 +12,8 @@ import { AudioPlayer, type AudioHandle } from "@/components/audio-player";
 import { DownloadDock, type DockItem } from "@/components/download-dock";
 import { subscribeJob } from "@/lib/client/sse";
 import { toast } from "@/hooks/use-toast";
-import type {
-    DownloadedTrack,
-    Mode,
-    ProgressEvent,
-    Track,
-} from "@/lib/types";
+import type { DownloadedTrack, Mode, ProgressEvent, Track } from "@/lib/types";
+import { ValueProps } from "@/components/value-props";
 
 type Row = Track | DownloadedTrack;
 
@@ -113,7 +109,10 @@ export default function Page() {
     const [status, setStatus] = useState<StatusLine[]>([]);
     const [tracks, setTracks] = useState<Row[]>([]);
     const [note, setNote] = useState<string | undefined>(undefined);
-    const [quota, setQuota] = useState<{ used: number; max: number; resetsAt: number } | undefined>(undefined);
+    const [quota, setQuota] = useState<{
+        overall: { used: number; max: number; resetsAt: number };
+        expensive: { used: number; max: number; resetsAt: number };
+    } | undefined>(undefined);
     const [inputLabel, setInputLabel] = useState("");
     const [dock, setDock] = useState<DockItem[]>([]);
     const [playingKey, setPlayingKey] = useState<string | null>(null);
@@ -719,6 +718,7 @@ export default function Page() {
                 onDownloadAll={downloadAllZip}
                 onDownloadM3U={downloadM3U}
             />
+            <ValueProps />
             <Footer />
             <AudioPlayer
                 ref={audioRef}

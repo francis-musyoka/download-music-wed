@@ -39,3 +39,7 @@ e2e/
 TODO.md
 previewImages
 scripts
+
+# Python venv used by lib/pipeline/scrapers/ytmusic_search.py
+.venv-ytmusic/
+.venv-probe
