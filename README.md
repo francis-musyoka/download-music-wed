@@ -141,6 +141,8 @@ npm run lint          # next lint
 
 The Python sidecar is a tiny CLI (`lib/pipeline/scrapers/ytmusic_search.py`) that shells out from `lib/pipeline/scrapers/ytmusic-api.js` via argv-array `execFile`. It calls `ytmusicapi.YTMusic().search(...)` with `ignore_spelling=False` (YTM's autocorrect is on by default) and prints JSON to stdout.
 
+**Download API reference:** the endpoint contracts (`/api/download`, `/api/progress`, `/api/audio`, `/api/zip`), request/response shapes, validation rules, the yt-dlp flow, and a "build your own" pattern are documented in [`docs/download-api.md`](docs/download-api.md) ([web version](https://gist.github.com/francis-musyoka/408f287a85ae96f505b273c2030c6e2a)).
+
 ### The genre pipeline (the meat)
 
 1. **Three parallel searches** (`lib/pipeline/scrapers/ytmusic-api.js`) — `q`, `q + " hits"`, `q + " new"`, each with `limit=200`. Results merged by videoId; tracks surfaced by the `+new` query are tagged `inNewPool=true`. Typically ~400 unique candidates.

@@ -60,6 +60,10 @@ function spawnYtDlp(videoId: string): Promise<string> {
         execFile(
             "yt-dlp",
             [
+                // Force IPv4 — YouTube 403s/throttles datacenter IPv6 ranges
+                // (see scrapers/youtube.js). Keeps server-side resolution on
+                // the unblocked v4 path.
+                "--force-ipv4",
                 "-f",
                 // Audio-only formats only — no fallback to `best`. A combined
                 // audio+video format from `best` can resolve to a manifest URL
