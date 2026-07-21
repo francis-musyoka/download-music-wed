@@ -144,6 +144,9 @@ function sweep(): void {
     const cutoff = Date.now() - TWO_HOURS_MS;
     for (const [id, job] of JOBS) {
         if (job.createdAt < cutoff) {
+            // completeJob/failJob already recorded this job's real outcome — only
+            // jobs still in-flight when they hit the TTL are genuinely "expired".
+            const alreadyTerminal = job.stage === "complete" || job.stage === "failed";
             for (const fn of job.subscribers) {
                 try {
                     fn({ jobId: id, stage: "failed", message: "Job expired", status: "failed" });
@@ -156,8 +159,10 @@ function sweep(): void {
                 releaseSlot();
                 job.holdsSlot = false;
             }
-            downloadJobsTotal.inc({ outcome: "expired" });
-            downloadJobDurationSeconds.observe({ outcome: "expired" }, (Date.now() - job.createdAt) / 1000);
+            if (!alreadyTerminal) {
+                downloadJobsTotal.inc({ outcome: "expired" });
+                downloadJobDurationSeconds.observe({ outcome: "expired" }, (Date.now() - job.createdAt) / 1000);
+            }
             JOBS.delete(id);
         }
     }
