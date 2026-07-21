@@ -458,7 +458,7 @@ export async function downloadTracks(
                         try {
                                 filePath = await downloadTrack(song.videoUrl, MUSIC_DIR);
                         } catch (err) {
-                                log.warn(`Download failed for ${song.artist} - ${song.title}: ${(err as Error).message}`);
+                                log.warn(`Download failed for ${song.artist} - ${song.title} (${song.videoUrl}): ${(err as Error).message}`);
                         }
                 }
 
