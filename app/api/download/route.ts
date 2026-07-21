@@ -4,6 +4,7 @@ import { completeJob, createJob, emit, failJob } from "@/lib/jobs";
 import { checkRate, clientIp, releaseSlot, reserveSlot } from "@/lib/limits";
 import { getOrSetSession } from "@/lib/session";
 import { safeFilename } from "@/lib/sanitize";
+import { downloadRequestsTotal } from "@/lib/metrics";
 import type { DownloadedTrack, Track } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -49,6 +50,7 @@ export async function POST(req: Request) {
     const ip = clientIp(req);
     const retry = checkRate(ip);
     if (retry !== null) {
+        downloadRequestsTotal.inc({ status: "429", reason: "rate_limited" });
         return NextResponse.json(
             { error: "Too many requests" },
             { status: 429, headers: { "Retry-After": String(retry) } },
@@ -59,6 +61,7 @@ export async function POST(req: Request) {
     try {
         body = (await req.json()) as DownloadBody;
     } catch {
+        downloadRequestsTotal.inc({ status: "400", reason: "invalid_json" });
         return NextResponse.json({ error: "Invalid JSON body" }, { status: 400 });
     }
 
@@ -66,6 +69,7 @@ export async function POST(req: Request) {
     const hasUrl = typeof body.url === "string" && body.url.length > 0;
 
     if (!hasTracks && !hasUrl) {
+        downloadRequestsTotal.inc({ status: "400", reason: "missing_input" });
         return NextResponse.json(
             { error: "Either tracks or url is required" },
             { status: 400 },
@@ -73,6 +77,7 @@ export async function POST(req: Request) {
     }
 
     if (hasTracks && (body.tracks as Track[]).length > MAX_TRACKS) {
+        downloadRequestsTotal.inc({ status: "400", reason: "too_many_tracks" });
         return NextResponse.json(
             { error: `Too many tracks (max ${MAX_TRACKS})` },
             { status: 400 },
@@ -80,6 +85,7 @@ export async function POST(req: Request) {
     }
 
     if (hasUrl && !isAllowedUrl(body.url as string)) {
+        downloadRequestsTotal.inc({ status: "400", reason: "bad_url" });
         return NextResponse.json(
             { error: "URL not allowed. Only youtube.com / youtu.be over https." },
             { status: 400 },
@@ -94,6 +100,7 @@ export async function POST(req: Request) {
             // yt-dlp's internal search. We only validate URLs that would be
             // passed to yt-dlp directly.
             if (typeof u === "string" && u.length > 0 && !isAllowedUrl(u)) {
+                downloadRequestsTotal.inc({ status: "400", reason: "bad_url" });
                 return NextResponse.json(
                     {
                         error: `Track ${i} has a videoUrl outside the allowed hosts. Only youtube.com / youtu.be over https.`,
@@ -105,6 +112,7 @@ export async function POST(req: Request) {
     }
 
     if (!reserveSlot()) {
+        downloadRequestsTotal.inc({ status: "429", reason: "busy" });
         return NextResponse.json(
             { error: "Server busy, try again shortly" },
             { status: 429 },
@@ -153,6 +161,7 @@ export async function POST(req: Request) {
                 failJob(jobId, sanitizeClientError(raw));
             });
 
+        downloadRequestsTotal.inc({ status: "200", reason: "ok" });
         return new NextResponse(JSON.stringify({ jobId }), {
             status: 200,
             headers: res.headers,
@@ -164,6 +173,7 @@ export async function POST(req: Request) {
         } else {
             releaseSlot();
         }
+        downloadRequestsTotal.inc({ status: "500", reason: "error" });
         return NextResponse.json(
             { error: "Internal server error" },
             { status: 500 },

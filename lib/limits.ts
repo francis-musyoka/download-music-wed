@@ -181,3 +181,7 @@ export function reserveSlot(): boolean {
 export function releaseSlot(): void {
     INFLIGHT.count = Math.max(0, INFLIGHT.count - 1);
 }
+
+export function getInflightCount(): number {
+    return INFLIGHT.count;
+}

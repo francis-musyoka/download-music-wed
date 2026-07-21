@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { Job, JobStage, ProgressEvent } from "./types";
 import { releaseSlot } from "./limits";
 import { startDiskCleanup } from "./disk-cleanup";
+import { downloadJobDurationSeconds, downloadJobsTotal } from "./metrics";
 
 // In-memory job store. Bounded by a 2h TTL sweep (see below).
 // NOTE: single-process only — this intentionally does not survive restarts.
@@ -116,6 +117,8 @@ export function completeJob(
         releaseSlot();
         job.holdsSlot = false;
     }
+    downloadJobsTotal.inc({ outcome: "success" });
+    downloadJobDurationSeconds.observe({ outcome: "success" }, (Date.now() - job.createdAt) / 1000);
 }
 
 export function failJob(jobId: string, error: string): void {
@@ -129,6 +132,8 @@ export function failJob(jobId: string, error: string): void {
         releaseSlot();
         job.holdsSlot = false;
     }
+    downloadJobsTotal.inc({ outcome: "failed" });
+    downloadJobDurationSeconds.observe({ outcome: "failed" }, (Date.now() - job.createdAt) / 1000);
 }
 
 /**
@@ -151,6 +156,8 @@ function sweep(): void {
                 releaseSlot();
                 job.holdsSlot = false;
             }
+            downloadJobsTotal.inc({ outcome: "expired" });
+            downloadJobDurationSeconds.observe({ outcome: "expired" }, (Date.now() - job.createdAt) / 1000);
             JOBS.delete(id);
         }
     }
