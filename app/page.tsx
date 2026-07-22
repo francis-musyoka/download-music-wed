@@ -18,6 +18,13 @@ import { MOCK_TRACKS } from "@/lib/fixtures/mock-tracks";
 
 type Row = Track | DownloadedTrack;
 
+// /api/download is gated behind NEXT_PUBLIC_DOWNLOAD_AUTH_TOKEN when set
+// (unset = no auth, dev only). Inlined into the client bundle at build time.
+const DOWNLOAD_AUTH_HEADERS: Record<string, string> = process.env
+    .NEXT_PUBLIC_DOWNLOAD_AUTH_TOKEN
+    ? { Authorization: `Bearer ${process.env.NEXT_PUBLIC_DOWNLOAD_AUTH_TOKEN}` }
+    : {};
+
 const STAGE_LABELS: Record<string, string> = {
     "scraping-spotify": "Crate digging",
     "enriching-youtube": "Sourcing audio",
@@ -196,7 +203,7 @@ export default function Page() {
             try {
                 const res = await fetch("/api/download", {
                     method: "POST",
-                    headers: { "Content-Type": "application/json" },
+                    headers: { "Content-Type": "application/json", ...DOWNLOAD_AUTH_HEADERS },
                     body: JSON.stringify(body),
                 });
                 if (!res.ok) {
@@ -577,7 +584,7 @@ export default function Page() {
         try {
             const res = await fetch("/api/download", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...DOWNLOAD_AUTH_HEADERS },
                 body: JSON.stringify({
                     tracks: payloadTracks,
                     playlistName: inputLabel,
@@ -661,7 +668,7 @@ export default function Page() {
         try {
             const res = await fetch("/api/download", {
                 method: "POST",
-                headers: { "Content-Type": "application/json" },
+                headers: { "Content-Type": "application/json", ...DOWNLOAD_AUTH_HEADERS },
                 body: JSON.stringify({
                     tracks: payloadTracks,
                     playlistName: inputLabel,

@@ -14,6 +14,7 @@ import {
         normaliseForMatch,
 } from "./utils/title-match.ts";
 import { isCuratedGenre } from "../constants/genres.ts";
+import { downloadTrackDurationSeconds } from "../metrics";
 
 // ── CommonJS pipeline modules (ported from the CLI, byte-for-byte) ──
 // eslint-disable-next-line @typescript-eslint/no-require-imports
@@ -455,10 +456,16 @@ export async function downloadTracks(
 
                 let filePath: string | null = null;
                 if (song.videoUrl) {
+                        const trackStart = Date.now();
                         try {
                                 filePath = await downloadTrack(song.videoUrl, MUSIC_DIR);
                         } catch (err) {
                                 log.warn(`Download failed for ${song.artist} - ${song.title} (${song.videoUrl}): ${(err as Error).message}`);
+                        } finally {
+                                downloadTrackDurationSeconds.observe(
+                                        { outcome: filePath ? "success" : "failed" },
+                                        (Date.now() - trackStart) / 1000,
+                                );
                         }
                 }
 
@@ -518,10 +525,19 @@ export async function downloadByUrl(
                 message: `Downloading from ${url}`,
         });
 
-        const result = await downloadTrack(url, MUSIC_DIR);
+        const trackStart = Date.now();
+        let result: string | string[] | null;
+        try {
+                result = await downloadTrack(url, MUSIC_DIR);
+        } catch (err) {
+                downloadTrackDurationSeconds.observe({ outcome: "failed" }, (Date.now() - trackStart) / 1000);
+                throw err;
+        }
         if (!result) {
+                downloadTrackDurationSeconds.observe({ outcome: "failed" }, (Date.now() - trackStart) / 1000);
                 throw new Error("No MP3 files were downloaded.");
         }
+        downloadTrackDurationSeconds.observe({ outcome: "success" }, (Date.now() - trackStart) / 1000);
 
         // downloadTrack returns a single path today; accept arrays defensively
         // in case upstream ever streams multiple files (e.g. YouTube playlists).

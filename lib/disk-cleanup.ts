@@ -10,8 +10,9 @@ import {
 // files older than CLEANUP_MAX_AGE_DAYS on a CLEANUP_INTERVAL_HOURS cadence.
 // See TODO.md #1.
 
-const DEFAULT_MAX_AGE_DAYS = 7;
+const DEFAULT_MAX_AGE_DAYS = 1;
 const DEFAULT_INTERVAL_HOURS = 6;
+const DEFAULT_LOG_PATH = "./disk-cleanup.log";
 
 function envNumber(name: string, fallback: number): number {
     const raw = process.env[name];
@@ -26,6 +27,20 @@ const MAX_AGE_MS =
 const INTERVAL_MS =
     envNumber("CLEANUP_INTERVAL_HOURS", DEFAULT_INTERVAL_HOURS) *
     60 * 60 * 1000;
+const LOG_PATH = process.env.CLEANUP_LOG_PATH || DEFAULT_LOG_PATH;
+
+// Append-only audit trail so deletions can be traced later — one line per
+// sweep, always written (even when nothing was deleted), so a gap in the
+// log is itself a signal the sweeper stopped running.
+async function logCleanup(musicDeleted: number, playlistsDeleted: number): Promise<void> {
+    const line = `${new Date().toISOString()} disk-cleanup totalDeleted=${musicDeleted + playlistsDeleted} (music=${musicDeleted}, playlists=${playlistsDeleted})\n`;
+    try {
+        await fs.mkdir(path.dirname(LOG_PATH), { recursive: true });
+        await fs.appendFile(LOG_PATH, line);
+    } catch (err) {
+        console.error(`[disk-cleanup] failed to write log file ${LOG_PATH}:`, err);
+    }
+}
 
 async function sweepDir(dir: string): Promise<number> {
     let entries: string[];
@@ -73,6 +88,7 @@ async function sweep(): Promise<void> {
             `[disk-cleanup] removed ${music} music + ${playlists} playlist files (older than ${MAX_AGE_MS / 86_400_000}d)`,
         );
     }
+    await logCleanup(music, playlists);
 }
 
 // Hoist the timer onto globalThis so the sweeper survives Next.js dev-mode
