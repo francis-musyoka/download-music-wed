@@ -26,8 +26,11 @@ Click ▶ on any result to preview the audio in-browser (streamed from YouTube v
 - **yt-dlp** for video resolution and audio download
 - **Deno** as yt-dlp's JavaScript runtime for solving YouTube's signature/n-param challenges
 - **ffmpeg** for audio extraction and 320 kbps MP3 transcoding
-- **spotdl** as an alternative download path
+- **spotdl** — installed and checked by `/api/health`, but not currently wired into any download path
+- **archiver** for ZIP-ing a result set (`/api/zip`)
 - **Pino** for structured server logs
+- **prom-client** for Prometheus metrics (`/api/metrics`)
+- **@next/third-parties** for Google Analytics (`NEXT_PUBLIC_GA_ID`, opt-in)
 - **Zod** for LLM response validation
 - **Vitest** for unit tests
 
@@ -64,7 +67,7 @@ python3 -m venv .venv-ytmusic
 cp .env.example .env
 # edit .env — set OPENAI_API_KEY, YTMUSIC_PYTHON, YT_DLP_COOKIES at minimum
 
-npm run dev           # http://localhost:3000
+npm run dev           # http://localhost:4000 (PORT from .env.example; without a .env, next dev defaults to 3000)
 ```
 
 Other commands:
@@ -85,19 +88,32 @@ npm run lint          # next lint
 
 | Variable | Default | What it does |
 |---|---|---|
-| `PORT` | `3000` | Listening port (dev/prod) |
+| `PORT` | `4000` | Listening port (dev/prod) — `deploy/ecosystem.config.js` also pins `4000` for the PM2 process |
 | `MUSIC_DIR` | `./music` | Where downloaded MP3s land |
 | `PLAYLISTS_DIR` | `./playlists` | Where M3U files land |
 | `OPENAI_API_KEY` | _empty_ | Required for LLM rerank (genre mode) |
 | `OPENAI_ENABLED` | `false` | Set to `true` to enable LLM rerank. Auto-disabled when key is empty. |
 | `OPENAI_MODEL_RERANK` | `gpt-4o-mini` | Model used for candidate rerank |
-| `OPENAI_TIMEOUT_RERANK_MS` | `15000` | Per-call timeout |
+| `OPENAI_MODEL_FAST` | _empty_ | Model used for the cheaper "understand query" LLM step |
+| `OPENAI_MODEL_SMART` | _empty_ | Model used where higher quality is worth the cost |
+| `OPENAI_TIMEOUT_RERANK_MS` | `15000` | Per-call timeout for the rerank step |
+| `OPENAI_TIMEOUT_UNDERSTAND_MS` | _empty_ | Per-call timeout for the "understand query" step |
+| `OPENAI_BASE_URL` | _empty_ | Override the OpenAI API base URL (e.g. for a compatible proxy) |
 | `YTMUSIC_PYTHON` | _empty_ | Path to a Python with `ytmusicapi` installed (the venv's `python3`). Unset → falls back to `python3` on PATH (likely fails). |
 | `YT_DLP_COOKIES` | _empty_ | Path to a Netscape-format cookies file. Required on datacenter IPs for downloads to bypass bot detection. |
 | `COOKIE_ALERT_WEBHOOK` | _empty_ | Discord/Slack webhook URL. When set, the 6-hourly health check at `lib/cron/check-cookies.sh` posts here if the cookies have expired. |
+| `COOKIE_HEALTH_VIDEO_ID` | _empty_ | Video ID the cookie health check downloads to verify cookies still work |
 | `CLEANUP_MAX_AGE_DAYS` | `7` | Files in `MUSIC_DIR` / `PLAYLISTS_DIR` older than this get swept |
 | `CLEANUP_INTERVAL_HOURS` | `6` | How often the in-process cleanup sweeper runs |
 | `YT_DLP_PREVIEW_TIMEOUT_MS` | `60000` | Per-call timeout for `/api/preview/[videoId]` |
+| `PREVIEW_TTL_MS` | _empty_ | How long a resolved preview URL is cached before re-resolving |
+| `PREVIEW_SAFETY_MARGIN_MS` | _empty_ | Buffer subtracted from YouTube's signed-URL expiry before treating a cached preview as stale |
+| `PREVIEW_CACHE_MAX_ENTRIES` | _empty_ | Max entries kept in the in-memory preview cache |
+| `DAILY_OVERALL_LIMIT` | `150` | Per-session daily cap for any genre/artist/song call (see Rate limits) |
+| `DAILY_EXPENSIVE_LIMIT` | `30` | Per-session daily cap for calls that actually fire the LLM rerank |
+| `NEXT_PUBLIC_GA_ID` | _empty_ | Google Analytics 4 measurement ID (`G-XXXXXXXXXX`). Unset disables analytics entirely. |
+| `METRICS_AUTH_TOKEN` | _empty_ | Bearer token required on `/api/metrics`. **Fail-closed**: unset rejects every scrape attempt, including in local dev — must be set for the endpoint to work at all. |
+| `NEXT_PUBLIC_DOWNLOAD_AUTH_TOKEN` | _empty_ | Bearer token required on `/api/download`. Must be `NEXT_PUBLIC_*` — it's inlined into the client bundle, and `app/page.tsx` sends it on every download request automatically, so real users see no change. Since it ships in client JS it's a deterrent against casual/automated direct-API abuse, not a real secret. **Fail-closed**: unset rejects every request, including in local dev. |
 
 ## Architecture
 
@@ -113,10 +129,12 @@ npm run lint          # next lint
               │ /api/rank          │ │ /api/progress/[id] │
               │ /api/download      │ │ (SSE stream)       │
               │ /api/preview/[id]  │ └────────────────────┘
+              │ /api/stream/[id]   │
               │ /api/audio/[file]  │
               │ /api/zip/[id]      │
               │ /api/quota         │
               │ /api/health        │
+              │ /api/metrics       │
               └─────────┬──────────┘
                         │
                         ▼
@@ -141,17 +159,17 @@ npm run lint          # next lint
 
 The Python sidecar is a tiny CLI (`lib/pipeline/scrapers/ytmusic_search.py`) that shells out from `lib/pipeline/scrapers/ytmusic-api.js` via argv-array `execFile`. It calls `ytmusicapi.YTMusic().search(...)` with `ignore_spelling=False` (YTM's autocorrect is on by default) and prints JSON to stdout.
 
-**Download API reference:** the endpoint contracts (`/api/download`, `/api/progress`, `/api/audio`, `/api/zip`), request/response shapes, validation rules, the yt-dlp flow, and a "build your own" pattern are documented in [`docs/download-api.md`](docs/download-api.md) ([web version](https://gist.github.com/francis-musyoka/408f287a85ae96f505b273c2030c6e2a)).
+**Download API reference:** the endpoint contracts (`/api/download`, `/api/progress`, `/api/audio`, `/api/zip`), request/response shapes, auth, validation rules, the yt-dlp flow, and a "build your own" pattern are documented in [`app/api/download/README.md`](app/api/download/README.md).
 
 ### The genre pipeline (the meat)
 
 1. **Three parallel searches** (`lib/pipeline/scrapers/ytmusic-api.js`) — `q`, `q + " hits"`, `q + " new"`, each with `limit=200`. Results merged by videoId; tracks surfaced by the `+new` query are tagged `inNewPool=true`. Typically ~400 unique candidates.
-2. **Noise filter** (`lib/pipeline/scoring/noiseFilter.ts`) — drops mixes, mixtapes, megamixes, "continuous mix", "full album", live, karaoke, remixes, sped-up/slowed, reactions, anything outside 60–600 s.
+2. **Noise filter** (`lib/pipeline/scoring/noiseFilter.ts`) — drops mixes, mixtapes, megamixes, "continuous mix", "full album", live, karaoke, remixes, sped-up/slowed, reactions, anything outside 120–480 s (2–8 min).
 3. **Library dedupe** — drops candidates that already exist in `MUSIC_DIR`.
 4. **Hit-score** (`lib/pipeline/scoring/hitScore.js`) — sorts by `log10(views)` plus a bucketed additive boost for `inNewPool=true` tracks (`+0.3` for <100K views, scaling up to `+1.8` for ≥10M views). The boost lets a new release with 5M views just edge past an old 100M-view classic, but a new 20K-view upload still can't outrank a real hit.
 5. **Title-artist dedupe** — walk the ranked list, keep only the first occurrence of each `(normalised title, normalised artist)` pair. Stops twin YT Music uploads from taking adjacent slots.
-6. **Top-50 cap** — only the top 50 by hit-score go to the LLM (cost ceiling).
-7. **LLM rerank** (`lib/llm/rerankCandidates.ts`) — `gpt-4o-mini` keep/reject per candidate. Input is just `{id, artist, title}`. Degrade path: top 10 by hit-score if the LLM call fails.
+6. **Top-50 cap** — only the top 50 by hit-score go to the LLM (cost ceiling). Skipped entirely for genres in `lib/constants/genres.ts`'s curated list — those go straight through on hit-score with no LLM call and no expensive-quota hit.
+7. **LLM rerank** (`lib/llm/rerankCandidates.ts`) — `gpt-4o-mini` keep/reject per candidate. Input is just `{id, artist, title}`. Degrade path on LLM failure: keep the full top-50 pool as-is (no LLM-based trimming); the later slice-to-N step still bounds what's actually returned.
 8. **Diversity cap** (`lib/pipeline/scoring/diversity.js`) — max 2 tracks per artist.
 9. **Slice to N** — return what the user asked for. Surface a "only N high-confidence tracks found" note when the pool runs short.
 
@@ -161,9 +179,8 @@ Artist mode is steps 2–4 + slice (no LLM rerank, no diversity cap), with a **s
 
 `lib/limits.ts`:
 
-- **5/min per IP** for genre + artist
-- **10/min per IP** for song + URL
-- **150/day per session overall** + **12/day per session for "expensive" calls** (those that actually fire the LLM rerank)
+- **8/min per IP**, unified across every mode (`MAX_PER_IP`) — no per-mode split
+- **150/day per session overall** (`DAILY_OVERALL_LIMIT`) + **30/day per session for "expensive" calls** (`DAILY_EXPENSIVE_LIMIT`, those that actually fire the LLM rerank)
 - **4 concurrent jobs globally** (`reserveSlot`)
 
 The session cookie identifies the user; the per-IP bucket is the secondary ratchet. Validation runs before any rate-limit increment.
@@ -180,26 +197,54 @@ Every search emits one structured log line at completion (`pino` JSON):
 
 Useful for understanding production behaviour at a glance — grep `pm2 logs wax` for `rank-complete` (or just the per-stage numbers).
 
+### Metrics (Prometheus)
+
+`/api/metrics` exposes Prometheus-format metrics via `prom-client` (`lib/metrics.ts`), gated behind a required bearer token (`METRICS_AUTH_TOKEN`) — fail-closed, so it must be set for scraping to work at all:
+
+- `download_requests_total{status,reason,ip}` — every `/api/download` response, labeled by HTTP status, outcome reason (`ok`, `rate_limited`, `bad_url`, `busy`, `unauthorized`, …), and client IP.
+- `download_jobs_total{outcome}` / `download_job_duration_seconds{outcome}` — job-level (per API call) completion counts and durations. **Note:** currently counts both `/api/rank` and `/api/download` job completions together, since both routes share `completeJob`/`failJob` — not download-only.
+- `download_tracks_total{ip,outcome}` / `download_track_duration_seconds{outcome}` — true per-track counts and durations from `/api/download`, independent of how many songs were bundled into one request (a 20-track bulk request is still one job, but 20 track observations).
+- `download_active_slots` — current in-flight concurrency (out of `MAX_INFLIGHT`).
+
+Example Prometheus scrape config:
+
+```yaml
+scrape_configs:
+  - job_name: "download-music-web"
+    metrics_path: /api/metrics
+    authorization:
+      credentials: "<METRICS_AUTH_TOKEN value>"
+    static_configs:
+      - targets: ["127.0.0.1:3000"]
+```
+
+All metrics live in process memory (hoisted on `globalThis`, same pattern as job/rate state) — they reset on process restart, there's no persistence across deploys.
+
 ### Security invariants
 
 Documented in `.claude/skills/reviewing-pull-requests/SKILL.md` for review automation:
 
 - All child-process calls use the **argv-array form** of `execFile`. No shell, no string templating, no injection surface.
 - `/api/audio/[file]` is path-traversal-guarded via `path.basename` + containment check against `MUSIC_DIR_RESOLVED`.
-- `/api/download` enforces an HTTPS allowlist (`youtube.com`, `youtu.be`) on both `body.url` and every `body.tracks[i].videoUrl`.
+- `/api/download` enforces an HTTPS allowlist (`youtube.com`, `www.youtube.com`, `m.youtube.com`, `music.youtube.com`, `youtu.be`) on both `body.url` and every `body.tracks[i].videoUrl`.
 - `/api/progress/[jobId]` and `/api/zip/[jobId]` compare the `dm_session` cookie to `job.sessionId` and return 404 (not 403) on mismatch.
 - `/api/preview/[videoId]` enforces a strict `^[a-zA-Z0-9_-]{11}$` regex and a per-IP rate limit.
 - The 11-char videoId regex is at the boundary; we don't trust yt-dlp to validate.
+- `/api/download` and `/api/metrics` require a matching bearer token (`lib/auth.ts`'s `isBearerAuthorized`) — fail-closed, no open-access fallback if the token env var is unset.
 
 ## Repository layout
 
 ```
 app/                  Next.js routes (UI + API)
   page.tsx              single-page UI
-  api/                  health, rank, download, audio, preview, progress, zip, quota
+  api/                  health, rank, download, audio, preview, stream, progress, zip, quota, metrics
 components/           React components (Nav, Hero, AppPanel, ResultsList, AudioPlayer, …)
 lib/
+  client/               browser-side helpers (sse.ts — SSE subscription)
+  constants/            genres.ts (curated-genre list), brand.ts, app-panel.ts, …
   cron/                 /etc/cron.d/ unit + scripts (weekly upgrades, cookie health check)
+  fixtures/             mock data used by dev/sample UI routes
+  hooks/                shared React hooks (use-toast, …)
   pipeline/             orchestrator + scrapers + scoring + utils
     scrapers/             ytmusic-api.js (Node wrapper) + ytmusic_search.py (sidecar) + youtube.js (yt-dlp)
     scoring/              hitScore, noiseFilter, diversity
@@ -207,8 +252,13 @@ lib/
   llm/                  OpenAI client, rerank prompt, schemas
   jobs.ts               in-memory job store + SSE emit/subscribe
   limits.ts             rate buckets + slot accounting
+  metrics.ts            Prometheus counters/histograms (prom-client)
+  auth.ts               shared bearer-token check for /api/download + /api/metrics
+  disk-cleanup.ts        sweeps stale files from MUSIC_DIR/PLAYLISTS_DIR (CLEANUP_* env vars)
+  preview-resolver.ts    videoId regex + preview-URL cache for /api/preview and /api/stream
   session.ts            anonymous cookie session
   sanitize.ts           safe filename helper
+  utils.ts              small shared helpers
   types.ts              shared types
 docs/superpowers/     plans + design docs (gitignored scratchpad)
 deploy/               Caddyfile, PM2 ecosystem, deploy README (gitignored)
@@ -245,7 +295,7 @@ sudo install -m 644 lib/cron/wax.cron /etc/cron.d/wax
 sudo mkdir -p /var/log/wax
 ```
 
-`.env` on the VPS needs (at minimum): `OPENAI_API_KEY`, `OPENAI_ENABLED=true`, `YTMUSIC_PYTHON=/var/www/download-music-wed/.venv-ytmusic/bin/python3`, `YT_DLP_COOKIES=/var/www/download-music-wed/cookies.txt`, and ideally `COOKIE_ALERT_WEBHOOK` (Discord/Slack URL — pings you when cookies expire).
+`.env` on the VPS needs (at minimum): `OPENAI_API_KEY`, `OPENAI_ENABLED=true`, `YTMUSIC_PYTHON=/var/www/download-music-wed/.venv-ytmusic/bin/python3`, `YT_DLP_COOKIES=/var/www/download-music-wed/cookies.txt`, and ideally `COOKIE_ALERT_WEBHOOK` (Discord/Slack URL — pings you when cookies expire). Also required now that both are fail-closed: `NEXT_PUBLIC_DOWNLOAD_AUTH_TOKEN` (downloads break entirely without it) and `METRICS_AUTH_TOKEN` if you're scraping `/api/metrics`.
 
 Ship cookies separately — they're not in git. See [`lib/cron/REFRESH-COOKIES.md`](lib/cron/REFRESH-COOKIES.md) for the workflow.
 
@@ -255,7 +305,7 @@ Upgrade: `git pull && npm ci && npm run build && pm2 restart wax`. The venv, cro
 
 ## Development notes
 
-- **Dev HMR and in-memory state.** Several modules use `globalThis.__downloadMusic*` to keep their state across HMR module re-evaluation: `lib/jobs.ts` (jobs), `lib/limits.ts` (rate buckets + slots), `app/api/preview/[videoId]/route.ts` (preview cache). Process restart is the only thing that clears them.
+- **Dev HMR and in-memory state.** Several modules hoist their state onto `globalThis` to survive HMR module re-evaluation: `lib/jobs.ts` (jobs, `__downloadMusicJobs`), `lib/limits.ts` (rate buckets + slots — note: uses a shorter `__dm*` key prefix, not `__downloadMusic*`), `lib/preview-resolver.ts` (the preview/stream URL cache, `__downloadMusicPreviewCache` — not the route file itself), `lib/metrics.ts` (`__downloadMusicMetrics`), and `lib/disk-cleanup.ts` (`__downloadMusicDiskCleanup`). Process restart is the only thing that clears them.
 - **Cache invalidation in dev.** If you edit LLM rerank logic and want to retry a previously-resolved query, restart the dev server. HMR preserves caches; only a full restart clears them.
 - **Tests.** Vitest. Files live under `lib/**/__tests__/*.test.ts`. Two legacy `node:test`-style files remain (`lib/llm/__tests__/degrade.test.ts`, `schemas.test.ts`); Vitest reports them as "no suite found" — harmless noise until migrated.
 - **The Python sidecar.** Set `YTMUSIC_PYTHON` to the venv's python so the Node wrapper finds `ytmusicapi`. Without it, searches silently return zero candidates and the orchestrator throws "No songs found". The wrapper detects exit code 3 + `ytmusicapi` in stderr and surfaces a clear actionable error.
