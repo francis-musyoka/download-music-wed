@@ -5,6 +5,7 @@ import { checkRate, clientIp, releaseSlot, reserveSlot } from "@/lib/limits";
 import { getOrSetSession } from "@/lib/session";
 import { safeFilename } from "@/lib/sanitize";
 import { downloadRequestsTotal, downloadTracksTotal } from "@/lib/metrics";
+import { isBearerAuthorized } from "@/lib/auth";
 import type { DownloadedTrack, Track } from "@/lib/types";
 
 export const runtime = "nodejs";
@@ -48,6 +49,11 @@ function sanitizeClientError(raw: string): string {
 
 export async function POST(req: Request) {
     const ip = clientIp(req);
+    if (!isBearerAuthorized(req, "NEXT_PUBLIC_DOWNLOAD_AUTH_TOKEN")) {
+        downloadRequestsTotal.inc({ status: "401", reason: "unauthorized", ip });
+        return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
+    }
+
     const retry = checkRate(ip);
     if (retry !== null) {
         downloadRequestsTotal.inc({ status: "429", reason: "rate_limited", ip });
