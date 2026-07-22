@@ -8,9 +8,11 @@ import { getInflightCount } from "./limits";
 type GlobalWithMetrics = typeof globalThis & {
     __downloadMusicMetrics?: {
         register: Registry;
-        downloadRequestsTotal: Counter<"status" | "reason">;
+        downloadRequestsTotal: Counter<"status" | "reason" | "ip">;
         downloadJobsTotal: Counter<"outcome">;
         downloadJobDurationSeconds: Histogram<"outcome">;
+        downloadTracksTotal: Counter<"ip" | "outcome">;
+        downloadTrackDurationSeconds: Histogram<"outcome">;
     };
 };
 const globalRef = globalThis as GlobalWithMetrics;
@@ -20,8 +22,8 @@ function createMetrics() {
 
     const downloadRequestsTotal = new Counter({
         name: "download_requests_total",
-        help: "Total /api/download requests, labeled by HTTP status and reason",
-        labelNames: ["status", "reason"],
+        help: "Total /api/download requests, labeled by HTTP status, reason, and client IP",
+        labelNames: ["status", "reason", "ip"],
         registers: [register],
     });
 
@@ -49,7 +51,29 @@ function createMetrics() {
         },
     });
 
-    return { register, downloadRequestsTotal, downloadJobsTotal, downloadJobDurationSeconds };
+    const downloadTracksTotal = new Counter({
+        name: "download_tracks_total",
+        help: "Total individual tracks processed via /api/download, labeled by client IP and outcome (success/failed)",
+        labelNames: ["ip", "outcome"],
+        registers: [register],
+    });
+
+    const downloadTrackDurationSeconds = new Histogram({
+        name: "download_track_duration_seconds",
+        help: "Duration of a single track's yt-dlp download attempt, in seconds, labeled by outcome",
+        labelNames: ["outcome"],
+        buckets: [1, 2, 5, 10, 20, 30, 60, 120, 300],
+        registers: [register],
+    });
+
+    return {
+        register,
+        downloadRequestsTotal,
+        downloadJobsTotal,
+        downloadJobDurationSeconds,
+        downloadTracksTotal,
+        downloadTrackDurationSeconds,
+    };
 }
 
 const metrics = globalRef.__downloadMusicMetrics ?? (globalRef.__downloadMusicMetrics = createMetrics());
@@ -58,3 +82,5 @@ export const register = metrics.register;
 export const downloadRequestsTotal = metrics.downloadRequestsTotal;
 export const downloadJobsTotal = metrics.downloadJobsTotal;
 export const downloadJobDurationSeconds = metrics.downloadJobDurationSeconds;
+export const downloadTracksTotal = metrics.downloadTracksTotal;
+export const downloadTrackDurationSeconds = metrics.downloadTrackDurationSeconds;
